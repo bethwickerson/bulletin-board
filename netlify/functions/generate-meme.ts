@@ -1,6 +1,8 @@
 import { Handler } from '@netlify/functions';
 import OpenAI from 'openai';
 import { ImageGenerateParams } from 'openai/resources';
+import path from 'path';
+import fs from 'fs';
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error('Missing OPENAI_API_KEY environment variable');
@@ -9,6 +11,33 @@ if (!process.env.OPENAI_API_KEY) {
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// Helper function to get the absolute path to the reference image
+function getReferencePath(): string {
+  // For local development
+  if (process.env.NETLIFY_DEV) {
+    return path.join(process.cwd(), 'public', 'reference.jpg');
+  }
+  
+  // For production deployment on Netlify
+  // In production, the function is in /.netlify/functions/ and public files are at the root
+  return path.join(process.cwd(), 'reference.jpg');
+}
+
+// Helper function to read a local file and convert it to base64
+async function fileToBase64(filePath: string): Promise<string> {
+  try {
+    const data = await fs.promises.readFile(filePath);
+    const base64 = data.toString('base64');
+    const extension = path.extname(filePath).substring(1);
+    const contentType = `image/${extension}`;
+    
+    return `data:${contentType};base64,${base64}`;
+  } catch (error) {
+    console.error('Error reading reference image:', error);
+    throw error;
+  }
+}
 
 // Helper function to download an image and convert it to a base64 data URL
 async function imageUrlToBase64(url: string): Promise<string> {
@@ -82,11 +111,20 @@ export const handler: Handler = async (event) => {
     }
     
     // Add a hardcoded instruction to make the meme look like a specific person
-    enhancedPrompt += ` Make the person in the meme look like a young professional with a friendly smile.`;
+    enhancedPrompt += ` Make the person in the meme look like the person in the reference image.`;
     
     enhancedPrompt += ` Make it appropriate for work environment.`;
     
     console.log('Enhanced prompt:', enhancedPrompt);
+    
+    // Get the reference image
+    console.log('Getting reference image...');
+    const referencePath = getReferencePath();
+    console.log('Reference image path:', referencePath);
+    
+    // Read and convert the reference image to base64
+    const referenceImageBase64 = await fileToBase64(referencePath);
+    console.log('Reference image loaded and converted to base64');
     
     // Always use DALL-E 3 for image generation
     const generateOptions: ImageGenerateParams = {
@@ -95,6 +133,8 @@ export const handler: Handler = async (event) => {
       n: 1,
       size: "1024x1024",
       quality: "standard",
+      // Include the reference image
+      reference_image: referenceImageBase64,
     };
     
     const response = await openai.images.generate(generateOptions);
