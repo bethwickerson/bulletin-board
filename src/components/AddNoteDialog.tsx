@@ -17,7 +17,7 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
 }) => {
   const [content, setContent] = useState('');
   const [author, setAuthor] = useState('');
-  const [type, setType] = useState<'text' | 'meme' | 'image'>('text');
+  const [type, setType] = useState<'text' | 'meme' | 'image'>('meme');
   const [style, setStyle] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
 
