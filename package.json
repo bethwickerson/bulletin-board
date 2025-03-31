@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "netlify dev",
+    "dev:vite": "vite",
     "dev:netlify": "npx netlify dev",
-    "dev:all": "concurrently \"npm run dev\" \"npm run dev:netlify\"",
+    "dev:all": "concurrently \"npm run dev:vite\" \"npm run dev:netlify\"",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
