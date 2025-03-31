@@ -495,12 +495,26 @@ function App() {
         </TransformComponent>
       </TransformWrapper>
 
+      {/* Tooltip that bounces up from below on load */}
+      <div 
+        className="fixed bottom-12 right-28 bg-white text-gray-800 px-4 py-2 rounded-lg
+                  pointer-events-none flex items-center"
+        style={{
+          animation: 'tooltipBounce 1s ease-out forwards',
+          boxShadow: '8px 6px 20px rgba(0, 0, 0, 0.2)'
+        }}
+      >
+        <div className="absolute -right-2 top-1/2 transform -translate-y-1/2 w-0 h-0 
+                      border-t-8 border-b-8 border-l-8 border-transparent border-l-white"></div>
+        Click here to add a note!
+      </div>
+
       <button
         onClick={() => setIsDialogOpen(true)}
-        className="fixed bottom-8 right-8 bg-blue-500 text-white p-4 rounded-full shadow-lg hover:bg-blue-600 transition-colors"
+        className="fixed bottom-8 right-8 bg-blue-500 text-white p-3 rounded-full shadow-lg hover:bg-blue-600 transition-colors"
         aria-label="Add note"
       >
-        <Plus size={28} />
+        <Plus size={45} />
       </button>
 
       <AddNoteDialog
