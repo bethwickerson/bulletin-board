@@ -56,9 +56,9 @@ const PostIt: React.FC<PostItProps> = ({
     // Activate this note
     onActivate();
     
-    // Only allow dragging if this note is editable and active
-    // and we're not currently resizing or rotating
-    if (isEditable && isActive && noteRef.current && !isResizing && !isRotating) {
+    // Allow dragging for all notes, but only if not currently resizing or rotating
+    // Only check isActive, not isEditable
+    if (isActive && noteRef.current && !isResizing && !isRotating) {
       const rect = noteRef.current.getBoundingClientRect();
       setDragOffset({
         x: e.clientX - rect.left,
@@ -192,7 +192,7 @@ const PostIt: React.FC<PostItProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging && isActive && isEditable) {
+    if (isDragging && isActive) {
       e.stopPropagation();
       e.preventDefault();
       
@@ -208,7 +208,7 @@ const PostIt: React.FC<PostItProps> = ({
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-    if (isDragging && isActive && isEditable) {
+    if (isDragging && isActive) {
       e.stopPropagation();
       
       // Create a synthetic drag event to use with the existing onDragEnd handler
@@ -230,7 +230,9 @@ const PostIt: React.FC<PostItProps> = ({
 
   // Add global mouse event handlers when dragging, resizing, or rotating
   useEffect(() => {
-    if ((isDragging || isResizing || isRotating) && isActive && isEditable) {
+    // For dragging, only check isActive, not isEditable
+    // For resizing and rotating, still check both isActive and isEditable
+    if ((isDragging && isActive) || ((isResizing || isRotating) && isActive && isEditable)) {
       const handleGlobalMouseMove = (e: MouseEvent) => {
         if (isDragging) {
           setPosition({
@@ -334,7 +336,7 @@ const PostIt: React.FC<PostItProps> = ({
   return (
     <div
       ref={noteRef}
-      className={`absolute shadow-lg rounded-lg select-none ${isEditable && !isResizing && !isRotating ? 'cursor-move' : 'cursor-default'}`}
+      className={`absolute shadow-lg rounded-lg select-none ${!isResizing && !isRotating ? 'cursor-move' : 'cursor-default'}`}
       style={{
         left: position.x,
         top: position.y,

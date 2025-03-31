@@ -326,11 +326,9 @@ function App() {
   }, []);
   
   const handleNoteActivate = useCallback((id: string) => {
-    // Only allow activation if this is one of my notes
-    if (myNoteIds.includes(id)) {
-      setActiveNoteId(id);
-    }
-  }, [myNoteIds]);
+    // Allow activation of any note for dragging purposes
+    setActiveNoteId(id);
+  }, []);
   
   const handleDeleteNote = useCallback(async (id: string) => {
     // Only allow deletion if this is one of my notes
