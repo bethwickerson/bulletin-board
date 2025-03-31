@@ -460,11 +460,10 @@ function App() {
             <div 
               className="absolute"
               style={{ 
-                left: '200px',
-                top: '400px',  
+                left: '250px',
+                top: '200px',  
                 width: '500px',
                 height: '500px',
-                transform: 'translate(0, -250px)',
                 zIndex: 9999
               }}
             >
