@@ -464,7 +464,7 @@ function App() {
                 top: '200px',  
                 width: '500px',
                 height: '500px',
-                zIndex: 9999
+                zIndex: -1
               }}
             >
               <img 
