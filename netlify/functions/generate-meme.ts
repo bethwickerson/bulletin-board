@@ -14,6 +14,7 @@ const openai = new OpenAI({
 const REFERENCE_IMAGE_URL = 'https://bdayboard.netlify.app/reference.jpg';
 
 // Helper function to download an image and convert it to a base64 data URL
+// This is now optional and only used if explicitly requested
 async function imageUrlToBase64(url: string): Promise<string> {
   try {
     const response = await fetch(url);
@@ -24,7 +25,7 @@ async function imageUrlToBase64(url: string): Promise<string> {
     return `data:${contentType};base64,${base64}`;
   } catch (error) {
     console.error('Error converting image to base64:', error);
-    throw error;
+    return ''; // Return empty string instead of throwing to prevent function failure
   }
 }
 
@@ -109,9 +110,9 @@ export const handler: Handler = async (event) => {
       throw new Error('No image URL returned from OpenAI');
     }
     
-    // Download the image and convert it to a base64 data URL
-    const base64Image = await imageUrlToBase64(imageUrl);
-    console.log('Converted image to base64');
+    // Skip base64 conversion to improve performance and avoid timeouts
+    // The client can use the direct URL instead
+    console.log('Returning direct image URL without base64 conversion');
     
     return {
       statusCode: 200,
@@ -121,7 +122,8 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         url: imageUrl,
-        base64: base64Image,
+        // Don't include base64 to avoid timeout
+        message: "Image generated successfully. Base64 conversion skipped to prevent timeout."
       }),
     };
   } catch (error) {

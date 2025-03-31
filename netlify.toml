@@ -6,3 +6,12 @@
   targetPort = 5173
   framework = "vite"
   autoLaunch = false
+
+[functions]
+  # Increase the function timeout to 26 seconds (maximum for free tier)
+  node_bundler = "esbuild"
+  external_node_modules = ["openai"]
+  
+  # Function-specific settings
+  [functions.generate-meme]
+    timeout = 26

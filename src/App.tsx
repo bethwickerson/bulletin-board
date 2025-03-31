@@ -117,10 +117,12 @@ function App() {
       console.log('Fetching notes...');
       setIsLoading(true);
       
+      // Limit the number of notes to fetch to prevent timeout
       const { data, error } = await supabase
         .from('notes')
         .select('*')
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false }) // Newest first
+        .limit(100); // Limit to 100 notes to prevent timeout
 
       if (error) {
         console.error('Error fetching notes:', error);
@@ -146,11 +148,12 @@ function App() {
           }
         }
         
-        // Fetch the notes again after updating positions
+        // Fetch the notes again after updating positions, with limit
         const { data: updatedData } = await supabase
           .from('notes')
           .select('*')
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: false }) // Newest first
+          .limit(100); // Limit to 100 notes to prevent timeout
         
         if (!updatedData) {
           return;
@@ -320,17 +323,18 @@ function App() {
       const responseData = await response.json();
       console.log('Response data:', responseData);
       
-      // Get the URL and base64 data from the response
-      const { url, base64 } = responseData;
+      // Get the URL from the response
+      const { url, message } = responseData;
       console.log('Meme URL from OpenAI:', url);
+      console.log('Message:', message || 'No message');
       
       if (!url || !url.startsWith('http')) {
         throw new Error('Invalid meme URL received from OpenAI');
       }
       
-      // Use the base64 data if available
-      const imageUrl = base64 || url;
-      console.log('Using image URL/data:', imageUrl.substring(0, 50) + '...');
+      // Use the direct URL since base64 is no longer provided
+      const imageUrl = url;
+      console.log('Using image URL:', imageUrl);
       
       // Add the meme as a new note
       // Place meme notes in a fixed position that's guaranteed to be visible
