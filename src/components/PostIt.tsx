@@ -2,6 +2,11 @@ import React, { useState, useRef } from 'react';
 import { Note } from '../types';
 import { GripHorizontal } from 'lucide-react';
 
+// Helper function to remove style information from content
+const removeStyleInfo = (content: string): string => {
+  return content.replace(/\s*\(Style:.*?\)\s*$/, '');
+};
+
 interface PostItProps {
   note: Note;
   onDragEnd: (e: React.DragEvent, id: string) => void;
@@ -161,7 +166,7 @@ const PostIt: React.FC<PostItProps> = ({ note, onDragEnd }) => {
       )}
       
       <div className="text-gray-800 whitespace-pre-wrap break-words">
-        {note.content}
+        {removeStyleInfo(note.content)}
       </div>
       
       <div className="mt-4 text-sm text-gray-600 italic">

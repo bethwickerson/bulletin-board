@@ -246,7 +246,7 @@ function App() {
         className="absolute inset-0 pointer-events-none bg-grid-pattern" 
         style={{ 
           backgroundPosition: `${gridPosition.x}px ${gridPosition.y}px`,
-          backgroundSize: `${50 * gridScale}px ${50 * gridScale}px`
+          backgroundSize: `${30 * gridScale}px ${30 * gridScale}px`
         }}
       />
       
@@ -256,12 +256,34 @@ function App() {
         minScale={0.1}
         maxScale={2}
         wheel={{ step: 0.1 }}
-        initialPositionX={0} // Start at the top-left corner
-        initialPositionY={0} // Start at the top-left corner
+        initialPositionX={0} 
+        initialPositionY={0}
+        panning={{ disabled: false, velocityDisabled: false }}
+        limitToBounds={false}
+        centerOnInit={false}
         onTransformed={handleTransform}
       >
         <TransformComponent wrapperClass="w-full h-full" contentClass="w-full h-full">
           <div className="relative w-[1000000px] h-[1000000px]">
+            {/* Center image - positioned at the center of the board */}
+            <div 
+              className="absolute"
+              style={{ 
+                left: '600px', 
+                top: '400px', 
+                transform: 'translate(-50%, -50%)',
+                zIndex: -1
+              }}
+            >
+              <img 
+                src="/HappyBirthdayBoy.jpg" 
+                alt="Bulletin Board" 
+                className="rounded-lg shadow-xl"
+                width="600"
+                height="400"
+              />
+            </div>
+            
             {notes.map((note) => (
               <PostIt
                 key={note.id}
