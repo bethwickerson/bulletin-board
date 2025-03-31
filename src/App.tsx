@@ -14,11 +14,57 @@ const COLORS = [
   '#f3e8ff', // Purple
 ];
 
+// Additional colors for the color picker
+const COLOR_OPTIONS = [
+  '#fef3c7', // Yellow
+  '#dbeafe', // Blue
+  '#dcfce7', // Green
+  '#fce7f3', // Pink
+  '#f3e8ff', // Purple
+  '#fee2e2', // Red
+  '#ffedd5', // Orange
+  '#ecfccb', // Lime
+  '#d1fae5', // Emerald
+  '#cffafe', // Cyan
+  '#e0e7ff', // Indigo
+  '#ede9fe', // Violet
+  '#fae8ff', // Fuchsia
+  '#f5f5f5', // Gray
+  '#ffffff', // White
+];
+
 function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [gridPosition, setGridPosition] = useState({ x: 0, y: 0 });
   const [gridScale, setGridScale] = useState(1);
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [myNoteIds, setMyNoteIds] = useState<string[]>([]);
+  
+  // Load notes created in this session from localStorage
+  useEffect(() => {
+    const savedNoteIds = localStorage.getItem('myBulletinBoardNotes');
+    if (savedNoteIds) {
+      try {
+        const parsedIds = JSON.parse(savedNoteIds);
+        if (Array.isArray(parsedIds)) {
+          setMyNoteIds(parsedIds);
+          console.log('Loaded my note IDs:', parsedIds);
+        }
+      } catch (e) {
+        console.error('Error parsing saved note IDs:', e);
+        localStorage.removeItem('myBulletinBoardNotes');
+      }
+    }
+  }, []);
+  
+  // Save my note IDs whenever they change
+  useEffect(() => {
+    if (myNoteIds.length > 0) {
+      localStorage.setItem('myBulletinBoardNotes', JSON.stringify(myNoteIds));
+      console.log('Saved my note IDs:', myNoteIds);
+    }
+  }, [myNoteIds]);
 
   useEffect(() => {
     const fetchNotes = async () => {
@@ -117,6 +163,18 @@ function App() {
           fetchNotes(); // Refetch all notes to ensure consistency
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'notes'
+        },
+        (payload) => {
+          console.log('Delete received!', payload);
+          fetchNotes(); // Refetch all notes to ensure consistency
+        }
+      )
       .subscribe((status) => {
         console.log('Realtime subscription status:', status);
       });
@@ -128,13 +186,14 @@ function App() {
   }, []);
 
   const handleAddNote = async (content: string, author: string, type: 'text' | 'meme') => {
+    
     // Use a visible position for notes (0-1000 range)
     const position = {
       x: 100 + Math.random() * 300,
       y: 100 + Math.random() * 300,
     };
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('notes')
       .insert([{
         content,
@@ -143,10 +202,15 @@ function App() {
         author,
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
         type
-      }]);
+      }])
+      .select();
 
     if (error) {
       console.error('Error adding note:', error);
+    } else if (data && data.length > 0) {
+      // Add the new note ID to my notes
+      const newNoteId = data[0].id;
+      setMyNoteIds(prev => [...prev, newNoteId]);
     }
   };
 
@@ -154,6 +218,7 @@ function App() {
     try {
       console.log('Generating meme with prompt:', prompt);
       console.log('Calling generate-meme function...');
+      
       
       const response = await fetch('/.netlify/functions/generate-meme', {
         method: 'POST',
@@ -201,7 +266,7 @@ function App() {
           content: prompt,
           position_x: 100, // Fixed position in the top-left corner (0-1000 range)
           position_y: 100, // Fixed position in the top-left corner (0-1000 range)
-          author: author,
+          author,
           color: '#ff9999', // Bright pink color for high visibility
           type: 'meme',
           meme_url: imageUrl // Use the base64 data if available, otherwise use the URL
@@ -212,6 +277,10 @@ function App() {
 
       if (error) {
         console.error('Error adding meme note:', error);
+      } else if (data && data.length > 0) {
+        // Add the new meme note ID to my notes
+        const newNoteId = data[0].id;
+        setMyNoteIds(prev => [...prev, newNoteId]);
       }
     } catch (error) {
       console.error('Error generating meme:', error);
@@ -232,7 +301,70 @@ function App() {
     if (error) {
       console.error('Error updating note position:', error);
     }
+    
+    // Reset active note after drag ends
+    setActiveNoteId(null);
   }, []);
+  
+  const handleNoteActivate = useCallback((id: string) => {
+    // Only allow activation if this is one of my notes
+    if (myNoteIds.includes(id)) {
+      setActiveNoteId(id);
+    }
+  }, [myNoteIds]);
+  
+  const handleDeleteNote = useCallback(async (id: string) => {
+    // Only allow deletion if this is one of my notes
+    if (!myNoteIds.includes(id)) {
+      console.log('Cannot delete note: not created in this session');
+      return;
+    }
+    
+    const { error } = await supabase
+      .from('notes')
+      .delete()
+      .eq('id', id);
+      
+    if (error) {
+      console.error('Error deleting note:', error);
+    }
+    
+    // Reset active note if the deleted note was active
+    if (activeNoteId === id) {
+      setActiveNoteId(null);
+    }
+    // Remove the note ID from my notes
+    setMyNoteIds(prev => prev.filter(noteId => noteId !== id));
+  }, [activeNoteId, myNoteIds]);
+  
+  const handleColorChange = useCallback(async (id: string, color: string, opacity: number = 1) => {
+    // Only allow color change if this is one of my notes
+    if (!myNoteIds.includes(id)) {
+      console.log('Cannot change color: not created in this session');
+      return;
+    }
+    
+    // Apply opacity to the color
+    let finalColor = color;
+    if (opacity < 1) {
+      // Convert hex to rgba
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      finalColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    }
+    
+    const { error } = await supabase
+      .from('notes')
+      .update({
+        color: finalColor
+      })
+      .eq('id', id);
+      
+    if (error) {
+      console.error('Error updating note color:', error);
+    }
+  }, [myNoteIds]);
 
   const handleTransform = useCallback((ref: { state: { positionX: number, positionY: number, scale: number } }) => {
     setGridPosition({ x: ref.state.positionX, y: ref.state.positionY });
@@ -249,6 +381,13 @@ function App() {
           backgroundSize: `${30 * gridScale}px ${30 * gridScale}px`
         }}
       />
+      
+      {/* Session info indicator */}
+      <div className="fixed top-4 left-4 bg-white px-3 py-2 rounded-lg shadow-md z-50">
+        <span className="text-sm text-gray-500">You can edit:</span>
+        <span className="ml-2 font-medium">{myNoteIds.length} notes</span>
+        <span className="ml-2 text-xs text-gray-400">(created in this session)</span>
+      </div>
       
       {/* TransformWrapper with initial position set to center of the board */}
       <TransformWrapper
@@ -289,6 +428,12 @@ function App() {
                 key={note.id}
                 note={note}
                 onDragEnd={handleDragEnd}
+                onActivate={() => handleNoteActivate(note.id)}
+                onDelete={() => handleDeleteNote(note.id)}
+                onColorChange={(color, opacity) => handleColorChange(note.id, color, opacity)}
+                isActive={note.id === activeNoteId}
+                isEditable={myNoteIds.includes(note.id)}
+                colorOptions={COLOR_OPTIONS}
               />
             ))}
           </div>
