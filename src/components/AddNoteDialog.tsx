@@ -90,7 +90,7 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
                 </label>
                 <select
                   value={type}
-                  onChange={(e) => setType(e.target.value as 'text' | 'meme' | 'image')}
+                  onChange={(e) => setType(e.target.value as 'meme' | 'image' | 'text')}
                   className="w-full rounded border p-2"
                 >
                   <option value="meme">Generate Image</option>
