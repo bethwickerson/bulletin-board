@@ -41,6 +41,9 @@ function App() {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [myNoteIds, setMyNoteIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState<number>(1); // Start with 1 (self)
+  const [showTip, setShowTip] = useState(false);
+  const [tipMessage, setTipMessage] = useState('');
   
   // Load notes created in this session from localStorage
   useEffect(() => {
@@ -66,6 +69,48 @@ function App() {
       console.log('Saved my note IDs:', myNoteIds);
     }
   }, [myNoteIds]);
+
+  // Set up presence channel to track online users
+  useEffect(() => {
+    // Generate a random user ID for this session
+    const userId = Math.random().toString(36).substring(2, 15);
+    
+    // Create a presence channel
+    const presenceChannel = supabase.channel('online-users', {
+      config: {
+        presence: {
+          key: userId,
+        },
+      },
+    });
+
+    // Set up presence handlers
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        // Get the current state of all online users
+        const state = presenceChannel.presenceState();
+        // Count the number of unique users
+        const userCount = Object.keys(state).length;
+        console.log('Online users:', userCount);
+        setOnlineUsers(userCount);
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('User joined:', key, newPresences);
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        console.log('User left:', key, leftPresences);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          // Enter the channel with our user ID
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      presenceChannel.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const fetchNotes = async () => {
@@ -235,6 +280,15 @@ function App() {
       // Add the new note ID to my notes
       const newNoteId = data[0].id;
       setMyNoteIds(prev => [...prev, newNoteId]);
+      
+      // Show tip message
+      setTipMessage('Tip: You can drag, resize, rotate, and change the color of your note!');
+      setShowTip(true);
+      
+      // Hide tip after 8 seconds
+      setTimeout(() => {
+        setShowTip(false);
+      }, 8000);
     }
   };
 
@@ -305,6 +359,15 @@ function App() {
         // Add the new meme note ID to my notes
         const newNoteId = data[0].id;
         setMyNoteIds(prev => [...prev, newNoteId]);
+        
+        // Show tip message
+        setTipMessage('Tip: You can drag, resize, rotate, and change the color of your meme!');
+        setShowTip(true);
+        
+        // Hide tip after 8 seconds
+        setTimeout(() => {
+          setShowTip(false);
+        }, 8000);
       }
     } catch (error) {
       console.error('Error generating meme:', error);
@@ -387,12 +450,14 @@ function App() {
     }
   }, [myNoteIds]);
 
-  const handleResize = useCallback(async (id: string, width: number, height: number) => {
+  const handleResize = useCallback(async (width: number, height: number, id: string) => {
     // Only allow resize if this is one of my notes
     if (!myNoteIds.includes(id)) {
       console.log('Cannot resize note: not created in this session');
       return;
     }
+    
+    console.log('Updating note size:', id, width, height);
     
     const { error } = await supabase
       .from('notes')
@@ -404,15 +469,19 @@ function App() {
       
     if (error) {
       console.error('Error updating note size:', error);
+    } else {
+      console.log('Note size updated successfully');
     }
   }, [myNoteIds]);
 
-  const handleRotate = useCallback(async (id: string, rotation: number) => {
+  const handleRotate = useCallback(async (rotation: number, id: string) => {
     // Only allow rotation if this is one of my notes
     if (!myNoteIds.includes(id)) {
       console.log('Cannot rotate note: not created in this session');
       return;
     }
+    
+    console.log('Updating note rotation:', id, rotation);
     
     const { error } = await supabase
       .from('notes')
@@ -423,6 +492,8 @@ function App() {
       
     if (error) {
       console.error('Error updating note rotation:', error);
+    } else {
+      console.log('Note rotation updated successfully');
     }
   }, [myNoteIds]);
 
@@ -452,6 +523,22 @@ function App() {
           Loading notes...
         </div>
       )}
+      
+      {/* Tip message after creating a note */}
+      {showTip && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-blue-50 border border-blue-200 px-4 py-2 rounded-lg shadow-md z-50 flex items-center animate-fadeIn">
+          <svg className="h-5 w-5 text-blue-500 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2h-1V9a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          {tipMessage}
+        </div>
+      )}
+      
+      {/* Online users indicator */}
+      <div className="fixed top-4 right-4 bg-white px-4 py-2 rounded-lg shadow-md z-50 flex items-center">
+        <div className="h-3 w-3 rounded-full bg-green-500 mr-2 animate-pulse"></div>
+        <span>{onlineUsers} {onlineUsers === 1 ? 'user' : 'users'} online</span>
+      </div>
       
       
       {/* TransformWrapper with initial position set to center of the board */}
@@ -497,8 +584,8 @@ function App() {
                 onActivate={() => handleNoteActivate(note.id)}
                 onDelete={() => handleDeleteNote(note.id)}
                 onColorChange={(color, opacity) => handleColorChange(note.id, color, opacity)}
-                onResize={(width, height) => handleResize(note.id, width, height)}
-                onRotate={(rotation) => handleRotate(note.id, rotation)}
+                onResize={handleResize}
+                onRotate={handleRotate}
                 isActive={note.id === activeNoteId}
                 isEditable={myNoteIds.includes(note.id)}
                 colorOptions={COLOR_OPTIONS}
