@@ -4,6 +4,9 @@ export interface Note {
   position: { x: number; y: number };
   author: string;
   color: string;
-  type: 'text' | 'meme';
+  type: 'text' | 'meme' | 'image';
   memeUrl?: string;
+  width?: number;
+  height?: number;
+  rotation?: number;
 }

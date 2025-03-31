@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 
 interface AddNoteDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddNote: (content: string, author: string, type: 'text' | 'meme') => void;
+  onAddNote: (content: string, author: string, type: 'text' | 'meme' | 'image', imageData?: string) => void;
   onGenerateMeme: (prompt: string, author: string) => Promise<void>;
 }
 
@@ -17,9 +17,34 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
 }) => {
   const [content, setContent] = useState('');
   const [author, setAuthor] = useState('');
-  const [type, setType] = useState<'text' | 'meme'>('text');
+  const [type, setType] = useState<'text' | 'meme' | 'image'>('text');
   const [style, setStyle] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+
+  const [imageData, setImageData] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file size (limit to 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size must be less than 5MB');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        setImageData(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,12 +54,22 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
       const enhancedPrompt = style ? `${content} (Style: ${style})` : content;
       await onGenerateMeme(enhancedPrompt, author);
       setIsGenerating(false);
+    } else if (type === 'image') {
+      if (!imageData) {
+        alert('Please upload an image');
+        return;
+      }
+      onAddNote(content, author, type, imageData);
     } else {
       onAddNote(content, author, type);
     }
     setContent('');
     setAuthor('');
     setStyle('');
+    setImageData(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
     onClose();
   };
 
@@ -55,17 +90,22 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
                 </label>
                 <select
                   value={type}
-                  onChange={(e) => setType(e.target.value as 'text' | 'meme')}
+                  onChange={(e) => setType(e.target.value as 'text' | 'meme' | 'image')}
                   className="w-full rounded border p-2"
                 >
                   <option value="text">Text Message</option>
                   <option value="meme">Generate Meme</option>
+                  <option value="image">Upload Image</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  {type === 'meme' ? 'Meme Description' : 'Message'}
+                  {type === 'meme' 
+                    ? 'Meme Description' 
+                    : type === 'image' 
+                      ? 'Caption (Optional)' 
+                      : 'Message'}
                 </label>
                 <textarea
                   value={content}
@@ -74,11 +114,39 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
                   placeholder={
                     type === 'meme'
                       ? 'Describe the birthday meme you want to generate...'
-                      : 'Write your birthday message...'
+                      : type === 'image'
+                        ? 'Add a caption for your image (optional)...'
+                        : 'Write your birthday message...'
                   }
-                  required
+                  required={type !== 'image'}
                 />
               </div>
+
+              {type === 'image' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Upload Image
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="w-full rounded border p-2"
+                    required
+                  />
+                  {imageData && (
+                    <div className="mt-2">
+                      <p className="text-sm text-green-600 mb-1">Image preview:</p>
+                      <img 
+                        src={imageData} 
+                        alt="Preview" 
+                        className="max-h-32 rounded border"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium mb-1">

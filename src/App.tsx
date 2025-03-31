@@ -124,8 +124,11 @@ function App() {
             },
             author: note.author,
             color: note.color,
-            type: note.type as 'text' | 'meme',
-            memeUrl: note.meme_url
+            type: note.type as 'text' | 'meme' | 'image',
+            memeUrl: note.meme_url,
+            width: note.width,
+            height: note.height,
+            rotation: note.rotation
           };
         });
         
@@ -185,7 +188,7 @@ function App() {
     };
   }, []);
 
-  const handleAddNote = async (content: string, author: string, type: 'text' | 'meme') => {
+  const handleAddNote = async (content: string, author: string, type: 'text' | 'meme' | 'image', imageData?: string) => {
     
     // Use a visible position for notes (0-1000 range)
     const position = {
@@ -193,16 +196,32 @@ function App() {
       y: 100 + Math.random() * 300,
     };
 
+    // Prepare the data to insert
+    const noteData: {
+      content: string;
+      position_x: number;
+      position_y: number;
+      author: string;
+      color: string;
+      type: 'text' | 'meme' | 'image';
+      meme_url?: string;
+    } = {
+      content,
+      position_x: position.x,
+      position_y: position.y,
+      author,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      type
+    };
+
+    // If it's an image type and we have image data, add it to the meme_url field
+    if (type === 'image' && imageData) {
+      noteData.meme_url = imageData;
+    }
+
     const { data, error } = await supabase
       .from('notes')
-      .insert([{
-        content,
-        position_x: position.x,
-        position_y: position.y,
-        author,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        type
-      }])
+      .insert([noteData])
       .select();
 
     if (error) {
@@ -366,6 +385,45 @@ function App() {
     }
   }, [myNoteIds]);
 
+  const handleResize = useCallback(async (id: string, width: number, height: number) => {
+    // Only allow resize if this is one of my notes
+    if (!myNoteIds.includes(id)) {
+      console.log('Cannot resize note: not created in this session');
+      return;
+    }
+    
+    const { error } = await supabase
+      .from('notes')
+      .update({
+        width,
+        height
+      })
+      .eq('id', id);
+      
+    if (error) {
+      console.error('Error updating note size:', error);
+    }
+  }, [myNoteIds]);
+
+  const handleRotate = useCallback(async (id: string, rotation: number) => {
+    // Only allow rotation if this is one of my notes
+    if (!myNoteIds.includes(id)) {
+      console.log('Cannot rotate note: not created in this session');
+      return;
+    }
+    
+    const { error } = await supabase
+      .from('notes')
+      .update({
+        rotation
+      })
+      .eq('id', id);
+      
+    if (error) {
+      console.error('Error updating note rotation:', error);
+    }
+  }, [myNoteIds]);
+
   const handleTransform = useCallback((ref: { state: { positionX: number, positionY: number, scale: number } }) => {
     setGridPosition({ x: ref.state.positionX, y: ref.state.positionY });
     setGridScale(ref.state.scale);
@@ -382,12 +440,6 @@ function App() {
         }}
       />
       
-      {/* Session info indicator */}
-      <div className="fixed top-4 left-4 bg-white px-3 py-2 rounded-lg shadow-md z-50">
-        <span className="text-sm text-gray-500">You can edit:</span>
-        <span className="ml-2 font-medium">{myNoteIds.length} notes</span>
-        <span className="ml-2 text-xs text-gray-400">(created in this session)</span>
-      </div>
       
       {/* TransformWrapper with initial position set to center of the board */}
       <TransformWrapper
@@ -395,23 +447,25 @@ function App() {
         minScale={0.1}
         maxScale={2}
         wheel={{ step: 0.1 }}
-        initialPositionX={0} 
-        initialPositionY={0}
+        initialPositionX={-500} 
+        initialPositionY={-500}
         panning={{ disabled: false, velocityDisabled: false }}
         limitToBounds={false}
-        centerOnInit={false}
+        centerOnInit={true}
         onTransformed={handleTransform}
       >
         <TransformComponent wrapperClass="w-full h-full" contentClass="w-full h-full">
-          <div className="relative w-[1000000px] h-[1000000px]">
+          <div className="relative w-[100000px] h-[100000px]">
             {/* Center image - positioned at the center of the board */}
             <div 
               className="absolute"
               style={{ 
-                left: '600px', 
-                top: '400px', 
-                transform: 'translate(-50%, -50%)',
-                zIndex: -1
+                left: '200px',
+                top: '400px',  
+                width: '500px',
+                height: '500px',
+                transform: 'translate(0, -250px)',
+                zIndex: 9999
               }}
             >
               <img 
@@ -431,6 +485,8 @@ function App() {
                 onActivate={() => handleNoteActivate(note.id)}
                 onDelete={() => handleDeleteNote(note.id)}
                 onColorChange={(color, opacity) => handleColorChange(note.id, color, opacity)}
+                onResize={(width, height) => handleResize(note.id, width, height)}
+                onRotate={(rotation) => handleRotate(note.id, rotation)}
                 isActive={note.id === activeNoteId}
                 isEditable={myNoteIds.includes(note.id)}
                 colorOptions={COLOR_OPTIONS}
@@ -445,7 +501,7 @@ function App() {
         className="fixed bottom-8 right-8 bg-blue-500 text-white p-4 rounded-full shadow-lg hover:bg-blue-600 transition-colors"
         aria-label="Add note"
       >
-        <Plus size={24} />
+        <Plus size={28} />
       </button>
 
       <AddNoteDialog

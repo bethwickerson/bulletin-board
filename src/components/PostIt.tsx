@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Note } from '../types';
-import { GripHorizontal, Trash2, Palette } from 'lucide-react';
+import { GripHorizontal, Trash2, Palette, RotateCw, Maximize2 } from 'lucide-react';
 
 // Helper function to remove style information from content
 const removeStyleInfo = (content: string): string => {
@@ -13,6 +13,8 @@ interface PostItProps {
   onActivate: () => void;
   onDelete: () => void;
   onColorChange: (color: string, opacity: number) => void;
+  onResize?: (width: number, height: number, id: string) => void;
+  onRotate?: (rotation: number, id: string) => void;
   isActive: boolean;
   isEditable: boolean;
   colorOptions: string[];
@@ -24,6 +26,8 @@ const PostIt: React.FC<PostItProps> = ({
   onActivate, 
   onDelete,
   onColorChange,
+  onResize,
+  onRotate,
   isActive,
   isEditable,
   colorOptions
@@ -33,6 +37,16 @@ const PostIt: React.FC<PostItProps> = ({
   const [position, setPosition] = useState({ x: note.position.x, y: note.position.y });
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [opacity, setOpacity] = useState(1);
+  const [size, setSize] = useState({ 
+    width: note.width || 256, 
+    height: note.height || 'auto' 
+  });
+  const [rotation, setRotation] = useState(note.rotation || -1);
+  const [isResizing, setIsResizing] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
+  const [resizeStartPos, setResizeStartPos] = useState({ x: 0, y: 0 });
+  const [resizeStartSize, setResizeStartSize] = useState({ width: 0, height: 0 });
+  const [rotateStartAngle, setRotateStartAngle] = useState(0);
   const noteRef = useRef<HTMLDivElement>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -43,13 +57,109 @@ const PostIt: React.FC<PostItProps> = ({
     onActivate();
     
     // Only allow dragging if this note is editable and active
-    if (isEditable && isActive && noteRef.current) {
+    // and we're not currently resizing or rotating
+    if (isEditable && isActive && noteRef.current && !isResizing && !isRotating) {
       const rect = noteRef.current.getBoundingClientRect();
       setDragOffset({
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
       });
       setIsDragging(true);
+    }
+  };
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    if (isEditable && isActive && noteRef.current) {
+      setIsResizing(true);
+      setResizeStartPos({ x: e.clientX, y: e.clientY });
+      setResizeStartSize({ 
+        width: typeof size.width === 'number' ? size.width : 256,
+        height: typeof size.height === 'number' ? size.height : 256
+      });
+    }
+  };
+
+  const handleResizeMove = (e: React.MouseEvent) => {
+    if (isResizing && isEditable && isActive) {
+      e.stopPropagation();
+      e.preventDefault();
+      
+      const deltaX = e.clientX - resizeStartPos.x;
+      const deltaY = e.clientY - resizeStartPos.y;
+      
+      // Calculate new size with minimum constraints
+      const newWidth = Math.max(150, resizeStartSize.width + deltaX);
+      const newHeight = Math.max(150, resizeStartSize.height + deltaY);
+      
+      setSize({ width: newWidth, height: newHeight });
+    }
+  };
+
+  const handleResizeEnd = () => {
+    if (isResizing && isEditable && isActive && onResize) {
+      setIsResizing(false);
+      
+      // Call the onResize callback to update the database
+      const newWidth = typeof size.width === 'number' ? size.width : 256;
+      const newHeight = typeof size.height === 'number' ? size.height : 256;
+      onResize(newWidth, newHeight, note.id);
+    }
+  };
+
+  const handleRotateStart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    if (isEditable && isActive && noteRef.current) {
+      setIsRotating(true);
+      
+      // Calculate the center of the note
+      const rect = noteRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      // Calculate the initial angle
+      const initialAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+      setRotateStartAngle(initialAngle);
+    }
+  };
+
+  const handleRotateMove = (e: React.MouseEvent) => {
+    if (isRotating && isEditable && isActive && noteRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+      
+      // Calculate the center of the note
+      const rect = noteRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      // Calculate the current angle
+      const currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+      
+      // Calculate the rotation delta in degrees
+      const angleDelta = (currentAngle - rotateStartAngle) * (180 / Math.PI);
+      
+      // Update the rotation (add to the existing rotation)
+      setRotation((prevRotation: number) => {
+        const newRotation = prevRotation + angleDelta;
+        return newRotation;
+      });
+      
+      // Update the start angle for the next move
+      setRotateStartAngle(currentAngle);
+    }
+  };
+
+  const handleRotateEnd = () => {
+    if (isRotating && isEditable && isActive && onRotate) {
+      setIsRotating(false);
+      
+      // Call the onRotate callback to update the database
+      onRotate(rotation, note.id);
     }
   };
 
@@ -90,6 +200,10 @@ const PostIt: React.FC<PostItProps> = ({
         x: e.clientX - dragOffset.x,
         y: e.clientY - dragOffset.y
       });
+    } else if (isResizing) {
+      handleResizeMove(e);
+    } else if (isRotating) {
+      handleRotateMove(e);
     }
   };
 
@@ -107,30 +221,83 @@ const PostIt: React.FC<PostItProps> = ({
       
       onDragEnd(syntheticEvent, note.id);
       setIsDragging(false);
+    } else if (isResizing) {
+      handleResizeEnd();
+    } else if (isRotating) {
+      handleRotateEnd();
     }
   };
 
-  // Add global mouse event handlers when dragging
-  React.useEffect(() => {
-    if (isDragging && isActive && isEditable) {
+  // Add global mouse event handlers when dragging, resizing, or rotating
+  useEffect(() => {
+    if ((isDragging || isResizing || isRotating) && isActive && isEditable) {
       const handleGlobalMouseMove = (e: MouseEvent) => {
-        setPosition({
-          x: e.clientX - dragOffset.x,
-          y: e.clientY - dragOffset.y
-        });
+        if (isDragging) {
+          setPosition({
+            x: e.clientX - dragOffset.x,
+            y: e.clientY - dragOffset.y
+          });
+        } else if (isResizing) {
+          const deltaX = e.clientX - resizeStartPos.x;
+          const deltaY = e.clientY - resizeStartPos.y;
+          
+          // Calculate new size with minimum constraints
+          const newWidth = Math.max(150, resizeStartSize.width + deltaX);
+          const newHeight = Math.max(150, resizeStartSize.height + deltaY);
+          
+          setSize({ width: newWidth, height: newHeight });
+        } else if (isRotating && noteRef.current) {
+          // Calculate the center of the note
+          const rect = noteRef.current.getBoundingClientRect();
+          const centerX = rect.left + rect.width / 2;
+          const centerY = rect.top + rect.height / 2;
+          
+          // Calculate the current angle
+          const currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+          
+          // Calculate the rotation delta in degrees
+          const angleDelta = (currentAngle - rotateStartAngle) * (180 / Math.PI);
+          
+          // Update the rotation (add to the existing rotation)
+          setRotation((prevRotation: number) => {
+            const newRotation = prevRotation + angleDelta;
+            return newRotation;
+          });
+          
+          // Update the start angle for the next move
+          setRotateStartAngle(currentAngle);
+        }
       };
 
       const handleGlobalMouseUp = (e: MouseEvent) => {
-        // Create a synthetic drag event to use with the existing onDragEnd handler
-        const syntheticEvent = {
-          clientX: e.clientX,
-          clientY: e.clientY,
-          preventDefault: () => {},
-          stopPropagation: () => {}
-        } as unknown as React.DragEvent;
-        
-        onDragEnd(syntheticEvent, note.id);
-        setIsDragging(false);
+        if (isDragging) {
+          // Create a synthetic drag event to use with the existing onDragEnd handler
+          const syntheticEvent = {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+          } as unknown as React.DragEvent;
+          
+          onDragEnd(syntheticEvent, note.id);
+          setIsDragging(false);
+        } else if (isResizing) {
+          setIsResizing(false);
+          
+          // Call the onResize callback to update the database
+          if (onResize) {
+            const newWidth = typeof size.width === 'number' ? size.width : 256;
+            const newHeight = typeof size.height === 'number' ? size.height : 256;
+            onResize(newWidth, newHeight, note.id);
+          }
+        } else if (isRotating) {
+          setIsRotating(false);
+          
+          // Call the onRotate callback to update the database
+          if (onRotate) {
+            onRotate(rotation, note.id);
+          }
+        }
       };
 
       document.addEventListener('mousemove', handleGlobalMouseMove);
@@ -141,10 +308,15 @@ const PostIt: React.FC<PostItProps> = ({
         document.removeEventListener('mouseup', handleGlobalMouseUp);
       };
     }
-  }, [isDragging, dragOffset, note.id, onDragEnd, isActive, isEditable]);
+  }, [
+    isDragging, isResizing, isRotating, 
+    dragOffset, resizeStartPos, resizeStartSize, rotateStartAngle,
+    note.id, onDragEnd, onResize, onRotate,
+    isActive, isEditable, rotation, size
+  ]);
 
   // Close color picker when clicking outside
-  React.useEffect(() => {
+  useEffect(() => {
     if (showColorPicker) {
       const handleClickOutside = (e: MouseEvent) => {
         if (noteRef.current && !noteRef.current.contains(e.target as Node)) {
@@ -162,16 +334,20 @@ const PostIt: React.FC<PostItProps> = ({
   return (
     <div
       ref={noteRef}
-      className={`absolute shadow-lg rounded-lg w-64 p-4 select-none ${isEditable ? 'cursor-move' : 'cursor-default'}`}
+      className={`absolute shadow-lg rounded-lg select-none ${isEditable && !isResizing && !isRotating ? 'cursor-move' : 'cursor-default'}`}
       style={{
         left: position.x,
         top: position.y,
+        width: typeof size.width === 'number' ? `${size.width}px` : size.width,
+        height: typeof size.height === 'number' ? `${size.height}px` : size.height,
         backgroundColor: note.color,
-        transform: 'rotate(-1deg)',
-        zIndex: isDragging ? 1000 : (showColorPicker ? 999 : 1),
+        transform: `rotate(${rotation}deg)`,
+        zIndex: isDragging || isResizing || isRotating ? 1000 : (showColorPicker ? 999 : 1),
         opacity: isDragging ? 0.8 : 1,
-        transition: isDragging ? 'none' : 'opacity 0.2s, background-color 0.3s',
-        border: isActive ? '2px solid #3b82f6' : 'none' // Highlight active note with blue border
+        transition: isDragging || isResizing || isRotating ? 'none' : 'opacity 0.2s, background-color 0.3s',
+        border: isActive ? '2px solid #3b82f6' : 'none', // Highlight active note with blue border
+        padding: '1rem',
+        overflow: 'hidden'
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -188,6 +364,13 @@ const PostIt: React.FC<PostItProps> = ({
                 aria-label="Change color"
               >
                 <Palette size={18} />
+              </button>
+              <button
+                onMouseDown={handleRotateStart}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Rotate note"
+              >
+                <RotateCw size={18} />
               </button>
             </div>
             <button 
@@ -231,8 +414,8 @@ const PostIt: React.FC<PostItProps> = ({
         </div>
       )}
       
-      {note.type === 'meme' && note.memeUrl && (
-        <div className="mb-4">
+      {(note.type === 'meme' || note.type === 'image') && note.memeUrl && (
+        <div className="mb-4 overflow-hidden">
           {/* Display the image */}
           {note.memeUrl.startsWith('data:') ? (
             // If it's a data URL (base64), display it directly
@@ -277,13 +460,25 @@ const PostIt: React.FC<PostItProps> = ({
         </div>
       )}
       
-      <div className="text-gray-800 whitespace-pre-wrap break-words">
-        {removeStyleInfo(note.content)}
-      </div>
+      {note.content && (
+        <div className="text-gray-800 whitespace-pre-wrap break-words">
+          {removeStyleInfo(note.content)}
+        </div>
+      )}
       
       <div className="mt-4 text-sm text-gray-600 italic">
         <span>From: {note.author}</span>
       </div>
+      
+      {/* Resize handle */}
+      {isEditable && isActive && (
+        <div 
+          className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize flex items-center justify-center"
+          onMouseDown={handleResizeStart}
+        >
+          <Maximize2 size={14} className="text-gray-400" />
+        </div>
+      )}
     </div>
   );
 };
