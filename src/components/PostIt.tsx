@@ -9,7 +9,7 @@ const removeStyleInfo = (content: string): string => {
 
 interface PostItProps {
   note: Note;
-  onDragEnd: (e: React.DragEvent, id: string) => void;
+  onDragEnd: (position: { x: number, y: number }, id: string) => void;
   onActivate: () => void;
   onDelete: () => void;
   onColorChange: (color: string, opacity: number) => void;
@@ -18,6 +18,8 @@ interface PostItProps {
   isActive: boolean;
   isEditable: boolean;
   colorOptions: string[];
+  transformScale: number;
+  transformPosition: { x: number, y: number };
 }
 
 const PostIt: React.FC<PostItProps> = ({ 
@@ -30,7 +32,9 @@ const PostIt: React.FC<PostItProps> = ({
   onRotate,
   isActive,
   isEditable,
-  colorOptions
+  colorOptions,
+  transformScale,
+  transformPosition
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -59,10 +63,14 @@ const PostIt: React.FC<PostItProps> = ({
     // Allow dragging for all notes, but only if not currently resizing or rotating
     // Only check isActive, not isEditable
     if (isActive && noteRef.current && !isResizing && !isRotating) {
-      const rect = noteRef.current.getBoundingClientRect();
+      // Account for the transform scale and position
+      // The mouse position needs to be adjusted based on the transform
+      const adjustedX = (e.clientX - transformPosition.x) / transformScale;
+      const adjustedY = (e.clientY - transformPosition.y) / transformScale;
+      
       setDragOffset({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
+        x: adjustedX - position.x,
+        y: adjustedY - position.y
       });
       setIsDragging(true);
     }
@@ -196,9 +204,14 @@ const PostIt: React.FC<PostItProps> = ({
       e.stopPropagation();
       e.preventDefault();
       
+      // Account for the transform scale and position
+      // The mouse position needs to be adjusted based on the transform
+      const adjustedX = (e.clientX - transformPosition.x) / transformScale;
+      const adjustedY = (e.clientY - transformPosition.y) / transformScale;
+      
       setPosition({
-        x: e.clientX - dragOffset.x,
-        y: e.clientY - dragOffset.y
+        x: adjustedX - dragOffset.x,
+        y: adjustedY - dragOffset.y
       });
     } else if (isResizing) {
       handleResizeMove(e);
@@ -207,19 +220,10 @@ const PostIt: React.FC<PostItProps> = ({
     }
   };
 
-  const handleMouseUp = (e: React.MouseEvent) => {
+  const handleMouseUp = () => {
     if (isDragging && isActive) {
-      e.stopPropagation();
-      
-      // Create a synthetic drag event to use with the existing onDragEnd handler
-      const syntheticEvent = {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        preventDefault: () => {},
-        stopPropagation: () => {}
-      } as unknown as React.DragEvent;
-      
-      onDragEnd(syntheticEvent, note.id);
+      // Pass the current position directly to onDragEnd
+      onDragEnd(position, note.id);
       setIsDragging(false);
     } else if (isResizing) {
       handleResizeEnd();
@@ -235,9 +239,14 @@ const PostIt: React.FC<PostItProps> = ({
     if ((isDragging && isActive) || ((isResizing || isRotating) && isActive && isEditable)) {
       const handleGlobalMouseMove = (e: MouseEvent) => {
         if (isDragging) {
+          // Account for the transform scale and position
+          // The mouse position needs to be adjusted based on the transform
+          const adjustedX = (e.clientX - transformPosition.x) / transformScale;
+          const adjustedY = (e.clientY - transformPosition.y) / transformScale;
+          
           setPosition({
-            x: e.clientX - dragOffset.x,
-            y: e.clientY - dragOffset.y
+            x: adjustedX - dragOffset.x,
+            y: adjustedY - dragOffset.y
           });
         } else if (isResizing) {
           const deltaX = e.clientX - resizeStartPos.x;
@@ -271,17 +280,10 @@ const PostIt: React.FC<PostItProps> = ({
         }
       };
 
-      const handleGlobalMouseUp = (e: MouseEvent) => {
+      const handleGlobalMouseUp = () => {
         if (isDragging) {
-          // Create a synthetic drag event to use with the existing onDragEnd handler
-          const syntheticEvent = {
-            clientX: e.clientX,
-            clientY: e.clientY,
-            preventDefault: () => {},
-            stopPropagation: () => {}
-          } as unknown as React.DragEvent;
-          
-          onDragEnd(syntheticEvent, note.id);
+          // Pass the current position directly to onDragEnd
+          onDragEnd(position, note.id);
           setIsDragging(false);
         } else if (isResizing) {
           setIsResizing(false);
@@ -314,7 +316,8 @@ const PostIt: React.FC<PostItProps> = ({
     isDragging, isResizing, isRotating, 
     dragOffset, resizeStartPos, resizeStartSize, rotateStartAngle,
     note.id, onDragEnd, onResize, onRotate,
-    isActive, isEditable, rotation, size
+    isActive, isEditable, rotation, size,
+    transformScale, transformPosition
   ]);
 
   // Close color picker when clicking outside

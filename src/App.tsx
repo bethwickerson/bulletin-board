@@ -306,14 +306,13 @@ function App() {
     }
   };
 
-  const handleDragEnd = useCallback(async (e: React.DragEvent, id: string) => {
-    const { clientX, clientY } = e;
-    
+  const handleDragEnd = useCallback(async (position: { x: number, y: number }, id: string) => {
+    // Update the position in the database with the position provided by the PostIt component
     const { error } = await supabase
       .from('notes')
       .update({
-        position_x: clientX - 100,
-        position_y: clientY - 50,
+        position_x: position.x,
+        position_y: position.y,
       })
       .eq('id', id);
 
@@ -323,7 +322,7 @@ function App() {
     
     // Reset active note after drag ends
     setActiveNoteId(null);
-  }, []);
+  }, [notes]);
   
   const handleNoteActivate = useCallback((id: string) => {
     // Allow activation of any note for dragging purposes
@@ -487,6 +486,8 @@ function App() {
                 isActive={note.id === activeNoteId}
                 isEditable={myNoteIds.includes(note.id)}
                 colorOptions={COLOR_OPTIONS}
+                transformScale={gridScale}
+                transformPosition={gridPosition}
               />
             ))}
           </div>
