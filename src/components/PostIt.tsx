@@ -80,7 +80,8 @@ const PostIt: React.FC<PostItProps> = ({
     e.stopPropagation();
     e.preventDefault();
     
-    if (isEditable && isActive && noteRef.current) {
+    // Allow resizing for all notes, not just editable ones
+    if (isActive && noteRef.current) {
       setIsResizing(true);
       setResizeStartPos({ x: e.clientX, y: e.clientY });
       setResizeStartSize({ 
@@ -91,7 +92,7 @@ const PostIt: React.FC<PostItProps> = ({
   };
 
   const handleResizeMove = (e: React.MouseEvent) => {
-    if (isResizing && isEditable && isActive) {
+    if (isResizing && isActive) {
       e.stopPropagation();
       e.preventDefault();
       
@@ -107,7 +108,7 @@ const PostIt: React.FC<PostItProps> = ({
   };
 
   const handleResizeEnd = () => {
-    if (isResizing && isEditable && isActive && onResize) {
+    if (isResizing && isActive && onResize) {
       setIsResizing(false);
       
       // Call the onResize callback to update the database
@@ -121,7 +122,8 @@ const PostIt: React.FC<PostItProps> = ({
     e.stopPropagation();
     e.preventDefault();
     
-    if (isEditable && isActive && noteRef.current) {
+    // Allow rotation for all notes, not just editable ones
+    if (isActive && noteRef.current) {
       setIsRotating(true);
       
       // Calculate the center of the note
@@ -136,7 +138,7 @@ const PostIt: React.FC<PostItProps> = ({
   };
 
   const handleRotateMove = (e: React.MouseEvent) => {
-    if (isRotating && isEditable && isActive && noteRef.current) {
+    if (isRotating && isActive && noteRef.current) {
       e.stopPropagation();
       e.preventDefault();
       
@@ -163,7 +165,7 @@ const PostIt: React.FC<PostItProps> = ({
   };
 
   const handleRotateEnd = () => {
-    if (isRotating && isEditable && isActive && onRotate) {
+    if (isRotating && isActive && onRotate) {
       setIsRotating(false);
       
       // Call the onRotate callback to update the database
@@ -234,9 +236,8 @@ const PostIt: React.FC<PostItProps> = ({
 
   // Add global mouse event handlers when dragging, resizing, or rotating
   useEffect(() => {
-    // For dragging, only check isActive, not isEditable
-    // For resizing and rotating, still check both isActive and isEditable
-    if ((isDragging && isActive) || ((isResizing || isRotating) && isActive && isEditable)) {
+    // For dragging, resizing, and rotating, only check isActive, not isEditable
+    if ((isDragging || isResizing || isRotating) && isActive) {
       const handleGlobalMouseMove = (e: MouseEvent) => {
         if (isDragging) {
           // Account for the transform scale and position
@@ -285,22 +286,18 @@ const PostIt: React.FC<PostItProps> = ({
           // Pass the current position directly to onDragEnd
           onDragEnd(position, note.id);
           setIsDragging(false);
-        } else if (isResizing) {
+        } else if (isResizing && onResize) {
           setIsResizing(false);
           
           // Call the onResize callback to update the database
-          if (onResize) {
-            const newWidth = typeof size.width === 'number' ? size.width : 256;
-            const newHeight = typeof size.height === 'number' ? size.height : 256;
-            onResize(newWidth, newHeight, note.id);
-          }
-        } else if (isRotating) {
+          const newWidth = typeof size.width === 'number' ? size.width : 256;
+          const newHeight = typeof size.height === 'number' ? size.height : 256;
+          onResize(newWidth, newHeight, note.id);
+        } else if (isRotating && onRotate) {
           setIsRotating(false);
           
           // Call the onRotate callback to update the database
-          if (onRotate) {
-            onRotate(rotation, note.id);
-          }
+          onRotate(rotation, note.id);
         }
       };
 
@@ -359,33 +356,41 @@ const PostIt: React.FC<PostItProps> = ({
       onMouseUp={handleMouseUp}
     >
       <div className="flex justify-between items-start mb-2">
-        {isEditable && (
-          <>
-            <div className="flex items-center space-x-2">
-              <GripHorizontal className="text-gray-600" size={20} />
-              <button
-                onClick={handleColorClick}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-                aria-label="Change color"
-              >
-                <Palette size={18} />
-              </button>
-              <button
-                onMouseDown={handleRotateStart}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-                aria-label="Rotate note"
-              >
-                <RotateCw size={18} />
-              </button>
-            </div>
-            <button 
-              onClick={handleDelete}
-              className="text-gray-400 hover:text-red-500 transition-colors"
-              aria-label="Delete note"
+        <div className="flex items-center space-x-2">
+          {/* Show grip and rotate button for all notes */}
+          <GripHorizontal className="text-gray-600" size={20} />
+          <button
+            onMouseDown={handleRotateStart}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Rotate note"
+            title="Rotate note"
+          >
+            <RotateCw size={18} />
+          </button>
+          
+          {/* Show color picker button only for editable notes */}
+          {isEditable && (
+            <button
+              onClick={handleColorClick}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="Change color"
+              title="Change color"
             >
-              <Trash2 size={18} />
+              <Palette size={18} />
             </button>
-          </>
+          )}
+        </div>
+        
+        {/* Show delete button only for editable notes */}
+        {isEditable && (
+          <button 
+            onClick={handleDelete}
+            className="text-gray-400 hover:text-red-500 transition-colors"
+            aria-label="Delete note"
+            title="Delete note"
+          >
+            <Trash2 size={18} />
+          </button>
         )}
       </div>
       
@@ -475,11 +480,12 @@ const PostIt: React.FC<PostItProps> = ({
         <span>From: {note.author}</span>
       </div>
       
-      {/* Resize handle */}
-      {isEditable && isActive && (
+      {/* Resize handle - show for all active notes */}
+      {isActive && (
         <div 
           className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize flex items-center justify-center"
           onMouseDown={handleResizeStart}
+          title="Resize note"
         >
           <Maximize2 size={14} className="text-gray-400" />
         </div>

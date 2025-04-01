@@ -549,12 +549,7 @@ function App() {
   }, [myNoteIds]);
 
   const handleResize = useCallback(async (width: number, height: number, id: string) => {
-    // Only allow resize if this is one of my notes
-    if (!myNoteIds.includes(id)) {
-      console.log('Cannot resize note: not created in this session');
-      return;
-    }
-    
+    // Allow resizing of all notes, not just the user's own notes
     console.log('Updating note size:', id, width, height);
     
     try {
@@ -593,15 +588,10 @@ function App() {
     } catch (error) {
       console.error('Unexpected error updating note size:', error);
     }
-  }, [myNoteIds]);
+  }, []);
 
   const handleRotate = useCallback(async (rotation: number, id: string) => {
-    // Only allow rotation if this is one of my notes
-    if (!myNoteIds.includes(id)) {
-      console.log('Cannot rotate note: not created in this session');
-      return;
-    }
-    
+    // Allow rotation of all notes, not just the user's own notes
     console.log('Updating note rotation:', id, rotation);
     
     try {
@@ -628,7 +618,7 @@ function App() {
     } catch (error) {
       console.error('Unexpected error updating note rotation:', error);
     }
-  }, [myNoteIds]);
+  }, []);
 
   const handleTransform = useCallback((ref: { state: { positionX: number, positionY: number, scale: number } }) => {
     setGridPosition({ x: ref.state.positionX, y: ref.state.positionY });
