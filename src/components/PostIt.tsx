@@ -357,19 +357,23 @@ const PostIt: React.FC<PostItProps> = ({
     >
       <div className="flex justify-between items-start mb-2">
         <div className="flex items-center space-x-2">
-          {/* Show grip and rotate button for all notes */}
-          <GripHorizontal className="text-gray-600" size={20} />
-          <button
-            onMouseDown={handleRotateStart}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            aria-label="Rotate note"
-            title="Rotate note"
-          >
-            <RotateCw size={18} />
-          </button>
+          {/* Only show grip and rotate buttons when note is active */}
+          {isActive && (
+            <GripHorizontal className="text-gray-600" size={20} />
+          )}
+          {isActive && (
+            <button
+              onMouseDown={handleRotateStart}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="Rotate note"
+              title="Rotate note"
+            >
+              <RotateCw size={18} />
+            </button>
+          )}
           
-          {/* Show color picker button only for editable notes */}
-          {isEditable && (
+          {/* Show color picker button only for active and editable notes */}
+          {isActive && isEditable && (
             <button
               onClick={handleColorClick}
               className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -381,8 +385,8 @@ const PostIt: React.FC<PostItProps> = ({
           )}
         </div>
         
-        {/* Show delete button only for editable notes */}
-        {isEditable && (
+        {/* Show delete button only for active and editable notes */}
+        {isActive && isEditable && (
           <button 
             onClick={handleDelete}
             className="text-gray-400 hover:text-red-500 transition-colors"
