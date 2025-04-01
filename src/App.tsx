@@ -5,6 +5,7 @@ import PostIt from './components/PostIt';
 import AddNoteDialog from './components/AddNoteDialog';
 import { Note } from './types';
 import { supabase } from './lib/supabase';
+import { Database } from './lib/database.types';
 
 const COLORS = [
   '#fef3c7', // Yellow
@@ -113,12 +114,36 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const fetchNotes = async () => {
-      console.log('Fetching notes...');
+    // Define a function to map database notes to app notes
+    const mapNoteFromDb = (note: Database['public']['Tables']['notes']['Row']): Note => ({
+      id: note.id,
+      content: note.content,
+      position: {
+        x: note.position_x,
+        y: note.position_y,
+      },
+      author: note.author,
+      color: note.color,
+      type: note.type as 'text' | 'meme' | 'image',
+      memeUrl: note.meme_url || undefined,
+      width: note.width || undefined,
+      height: note.height || undefined,
+      rotation: note.rotation || undefined
+    });
+
+    // Function to fetch notes with retry logic
+    const fetchNotes = async (retryCount = 0) => {
+      if (retryCount > 3) {
+        console.error('Max retries reached when fetching notes');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('Fetching notes (attempt ' + (retryCount + 1) + ')...');
       setIsLoading(true);
       
       try {
-        // Fetch all notes without limiting or updating positions
+        // Fetch all notes initially
         const { data, error } = await supabase
           .from('notes')
           .select('*')
@@ -126,99 +151,105 @@ function App() {
 
         if (error) {
           console.error('Error fetching notes:', error);
+          
+          // If we get a timeout error, retry after a delay
+          if (error.code === '57014' || error.code === 'PGRST002' || error.message.includes('timeout')) {
+            console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
+            setTimeout(() => fetchNotes(retryCount + 1), (retryCount + 1) * 2000);
+            return;
+          }
+          
+          setIsLoading(false);
           return;
         }
 
-        console.log('Notes fetched:', data);
-        console.log('Number of notes:', data?.length || 0);
-        
         if (!data) {
+          setIsLoading(false);
           return;
         }
         
-        const mappedNotes = data.map(note => {
-          console.log('Processing note:', note);
-          console.log('Note ID:', note.id);
-          console.log('Note Type:', note.type);
-          console.log('Note Position:', note.position_x, note.position_y);
-          console.log('Meme URL:', note.meme_url);
+        // Map the notes with minimal logging
+        const mappedNotes = data.map(mapNoteFromDb);
+        console.log(`Fetched ${mappedNotes.length} notes successfully`);
+        
+        // Sort notes to prioritize user's own notes at the top
+        const sortedNotes = [...mappedNotes].sort((a, b) => {
+          const aIsOwn = myNoteIds.includes(a.id);
+          const bIsOwn = myNoteIds.includes(b.id);
           
-          return {
-            id: note.id,
-            content: note.content,
-            position: {
-              x: note.position_x,
-              y: note.position_y,
-            },
-            author: note.author,
-            color: note.color,
-            type: note.type as 'text' | 'meme' | 'image',
-            memeUrl: note.meme_url,
-            width: note.width,
-            height: note.height,
-            rotation: note.rotation
-          };
+          if (aIsOwn && !bIsOwn) return -1;
+          if (!aIsOwn && bIsOwn) return 1;
+          return 0;
         });
         
-        console.log('Mapped notes:', mappedNotes);
-        console.log('Number of mapped notes:', mappedNotes.length);
-        setNotes(mappedNotes);
+        setNotes(sortedNotes);
       } catch (error) {
         console.error('Error in fetchNotes:', error);
+        
+        // Retry on unexpected errors
+        console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
+        setTimeout(() => fetchNotes(retryCount + 1), (retryCount + 1) * 2000);
       } finally {
-        setIsLoading(false);
+        if (retryCount === 0) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchNotes();
 
-    // Subscribe to real-time changes
-    const channel = supabase.channel('notes_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notes'
-        },
-        (payload) => {
-          console.log('Insert received!', payload);
-          fetchNotes(); // Refetch all notes to ensure consistency
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'notes'
-        },
-        (payload) => {
-          console.log('Update received!', payload);
-          fetchNotes(); // Refetch all notes to ensure consistency
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'notes'
-        },
-        (payload) => {
-          console.log('Delete received!', payload);
-          fetchNotes(); // Refetch all notes to ensure consistency
-        }
-      )
-      .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
-      });
+    // Subscribe only to changes for the user's own notes if there are any
+    let channel;
+    
+    if (myNoteIds.length > 0) {
+      // Create a filter string for the user's notes
+      const filterStr = myNoteIds.length === 1 
+        ? `id=eq.${myNoteIds[0]}` 
+        : `id=in.(${myNoteIds.join(',')})`;
+      
+      channel = supabase.channel('my_notes_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
+            schema: 'public',
+            table: 'notes',
+            filter: filterStr
+          },
+          (payload) => {
+            console.log('Change received for my note:', payload);
+            // Refresh all notes when user's own notes change
+            fetchNotes();
+          }
+        )
+        .subscribe((status) => {
+          console.log('Realtime subscription status:', status);
+        });
+    } else {
+      // If no notes yet, just subscribe to all notes table changes
+      channel = supabase.channel('notes_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notes'
+          },
+          (payload) => {
+            console.log('New note inserted:', payload);
+            fetchNotes();
+          }
+        )
+        .subscribe((status) => {
+          console.log('Realtime subscription status:', status);
+        });
+    }
 
     return () => {
       console.log('Unsubscribing from channel');
       channel.unsubscribe();
     };
-  }, []);
+  }, [myNoteIds]); // Re-subscribe when myNoteIds changes
 
   const handleAddNote = async (content: string, author: string, type: 'text' | 'meme' | 'image', imageData?: string) => {
     
@@ -276,10 +307,11 @@ function App() {
 
   const handleGenerateMeme = async (prompt: string, author: string) => {
     try {
+      setIsLoading(true);
       console.log('Generating meme with prompt:', prompt);
       console.log('Calling generate-meme function...');
       
-      
+      // Step 1: Generate the meme image
       const response = await fetch('/.netlify/functions/generate-meme', {
         method: 'POST',
         headers: {
@@ -296,6 +328,7 @@ function App() {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Error response:', errorText);
+        setIsLoading(false);
         throw new Error(`Failed to generate meme: ${response.status} ${response.statusText}`);
       }
 
@@ -308,6 +341,7 @@ function App() {
       console.log('Message:', message || 'No message');
       
       if (!url || !url.startsWith('http')) {
+        setIsLoading(false);
         throw new Error('Invalid meme URL received from OpenAI');
       }
       
@@ -315,45 +349,79 @@ function App() {
       const imageUrl = url;
       console.log('Using image URL:', imageUrl);
       
-      // Add the meme as a new note
-      // Place meme notes in a fixed position that's guaranteed to be visible
-      console.log('Adding meme note with URL/data');
-      
-      // Place the meme note at a fixed position in the top-left corner of the viewport
-      // Use absolute coordinates (0-1000) instead of the large board coordinates
-      const { data, error } = await supabase
-        .from('notes')
-        .insert([{
-          content: prompt,
-          position_x: 100, // Fixed position in the top-left corner (0-1000 range)
-          position_y: 100, // Fixed position in the top-left corner (0-1000 range)
-          author,
-          color: '#ff9999', // Bright pink color for high visibility
-          type: 'meme',
-          meme_url: imageUrl // Use the base64 data if available, otherwise use the URL
-        }])
-        .select();
-      
-      console.log('Meme note added:', data);
-
-      if (error) {
-        console.error('Error adding meme note:', error);
-      } else if (data && data.length > 0) {
-        // Add the new meme note ID to my notes
-        const newNoteId = data[0].id;
-        setMyNoteIds(prev => [...prev, newNoteId]);
+      // Step 2: Add the meme as a new note with retry logic
+      const addMemeToDatabase = async (retryCount = 0) => {
+        if (retryCount > 3) {
+          console.error('Max retries reached when adding meme to database');
+          setIsLoading(false);
+          return;
+        }
         
-        // Show tip message
-        setTipMessage('Tip: You can drag, resize, rotate, and change the color of your meme!');
-        setShowTip(true);
-        
-        // Hide tip after 8 seconds
-        setTimeout(() => {
-          setShowTip(false);
-        }, 8000);
-      }
+        try {
+          console.log(`Adding meme note to database (attempt ${retryCount + 1})...`);
+          
+          // Place the meme note at a fixed position in the top-left corner of the viewport
+          // Use absolute coordinates (0-1000) instead of the large board coordinates
+          const { data, error } = await supabase
+            .from('notes')
+            .insert([{
+              content: prompt,
+              position_x: 100 + Math.random() * 100, // Add some randomness to prevent overlap
+              position_y: 100 + Math.random() * 100, // Add some randomness to prevent overlap
+              author,
+              color: '#ff9999', // Bright pink color for high visibility
+              type: 'meme',
+              meme_url: imageUrl,
+              width: 256, // Default width
+              height: 256, // Default height
+              rotation: 0 // No rotation
+            }])
+            .select();
+          
+          if (error) {
+            console.error('Error adding meme note:', error);
+            
+            // If we get a timeout error, retry after a delay
+            if (error.code === '57014' || error.code === 'PGRST002' || error.message.includes('timeout')) {
+              console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
+              setTimeout(() => addMemeToDatabase(retryCount + 1), (retryCount + 1) * 2000);
+              return;
+            }
+            
+            setIsLoading(false);
+          } else if (data && data.length > 0) {
+            console.log('Meme note added successfully:', data);
+            
+            // Add the new meme note ID to my notes
+            const newNoteId = data[0].id;
+            setMyNoteIds(prev => [...prev, newNoteId]);
+            
+            // Show tip message
+            setTipMessage('Tip: You can drag, resize, rotate, and change the color of your meme!');
+            setShowTip(true);
+            
+            // Hide tip after 8 seconds
+            setTimeout(() => {
+              setShowTip(false);
+            }, 8000);
+            
+            setIsLoading(false);
+          }
+        } catch (error) {
+          console.error('Unexpected error adding meme to database:', error);
+          
+          // Retry on unexpected errors
+          console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
+          setTimeout(() => addMemeToDatabase(retryCount + 1), (retryCount + 1) * 2000);
+        }
+      };
+      
+      // Start the database operation with retry logic
+      await addMemeToDatabase();
+      
     } catch (error) {
       console.error('Error generating meme:', error);
+      setIsLoading(false);
     }
   };
 
@@ -442,18 +510,41 @@ function App() {
     
     console.log('Updating note size:', id, width, height);
     
-    const { error } = await supabase
-      .from('notes')
-      .update({
-        width,
-        height
-      })
-      .eq('id', id);
-      
-    if (error) {
-      console.error('Error updating note size:', error);
-    } else {
-      console.log('Note size updated successfully');
+    try {
+      // First try to update both width and height
+      const { error } = await supabase
+        .from('notes')
+        .update({
+          width,
+          height
+        })
+        .eq('id', id);
+        
+      if (error) {
+        console.error('Error updating note size:', error);
+        
+        // If we get a schema error, try updating just the width
+        if (error.code === 'PGRST204' && error.message.includes('height')) {
+          console.log('Height column not found, trying to update width only');
+          
+          const { error: widthError } = await supabase
+            .from('notes')
+            .update({
+              width
+            })
+            .eq('id', id);
+            
+          if (widthError) {
+            console.error('Error updating width:', widthError);
+          } else {
+            console.log('Width updated successfully');
+          }
+        }
+      } else {
+        console.log('Note size updated successfully');
+      }
+    } catch (error) {
+      console.error('Unexpected error updating note size:', error);
     }
   }, [myNoteIds]);
 
@@ -466,17 +557,29 @@ function App() {
     
     console.log('Updating note rotation:', id, rotation);
     
-    const { error } = await supabase
-      .from('notes')
-      .update({
-        rotation
-      })
-      .eq('id', id);
-      
-    if (error) {
-      console.error('Error updating note rotation:', error);
-    } else {
-      console.log('Note rotation updated successfully');
+    try {
+      const { error } = await supabase
+        .from('notes')
+        .update({
+          rotation
+        })
+        .eq('id', id);
+        
+      if (error) {
+        console.error('Error updating note rotation:', error);
+        
+        // If we get a schema error, the rotation column might not exist yet
+        if (error.code === 'PGRST204' && error.message.includes('rotation')) {
+          console.log('Rotation column not found in schema cache');
+          
+          // We'll just log this and not retry since the migration will fix it
+          console.log('Waiting for migration to add rotation column...');
+        }
+      } else {
+        console.log('Note rotation updated successfully');
+      }
+    } catch (error) {
+      console.error('Unexpected error updating note rotation:', error);
     }
   }, [myNoteIds]);
 

@@ -20,6 +20,9 @@ export interface Database {
           type: string
           meme_url: string | null
           created_at: string
+          width: number | null
+          height: number | null
+          rotation: number | null
         }
         Insert: {
           id?: string
@@ -31,6 +34,9 @@ export interface Database {
           type: string
           meme_url?: string | null
           created_at?: string
+          width?: number | null
+          height?: number | null
+          rotation?: number | null
         }
         Update: {
           id?: string
@@ -42,6 +48,9 @@ export interface Database {
           type?: string
           meme_url?: string | null
           created_at?: string
+          width?: number | null
+          height?: number | null
+          rotation?: number | null
         }
       }
     }
