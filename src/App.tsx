@@ -131,11 +131,24 @@ function App() {
       rotation: note.rotation || undefined
     });
 
-    // Function to fetch notes with retry logic
+    // Function to fetch notes with improved retry logic
     const fetchNotes = async (retryCount = 0) => {
-      if (retryCount > 3) {
+      const maxRetries = 5;
+      
+      if (retryCount > maxRetries) {
         console.error('Max retries reached when fetching notes');
         setIsLoading(false);
+        
+        // Show a user-friendly message when all retries fail
+        setTipMessage('Having trouble connecting to the database. Please try again later.');
+        setShowTip(true);
+        
+        // Hide tip after 8 seconds
+        setTimeout(() => {
+          setShowTip(false);
+        }, 8000);
+        
+        // Still show any locally cached notes if available
         return;
       }
 
@@ -143,19 +156,41 @@ function App() {
       setIsLoading(true);
       
       try {
-        // Fetch all notes initially
-        const { data, error } = await supabase
+        // Use a shorter timeout for each attempt
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Local fetch timeout')), 5000);
+        });
+        
+        // Fetch notes with a limit to reduce data size
+        const fetchPromise = supabase
           .from('notes')
           .select('*')
-          .order('created_at', { ascending: false }); // Newest first
+          .order('created_at', { ascending: false }) // Newest first
+          .limit(100); // Limit to 100 notes to reduce payload size
+        
+        // Race between fetch and timeout
+        const result = await Promise.race([
+          fetchPromise,
+          timeoutPromise.then(() => {
+            throw new Error('Local fetch timeout');
+          })
+        ]);
+        
+        const { data, error } = result;
 
         if (error) {
           console.error('Error fetching notes:', error);
           
-          // If we get a timeout error, retry after a delay
-          if (error.code === '57014' || error.code === 'PGRST002' || error.message.includes('timeout')) {
-            console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
-            setTimeout(() => fetchNotes(retryCount + 1), (retryCount + 1) * 2000);
+          // Handle various error types
+          if (
+            error.code === '57014' || // Statement timeout
+            error.code === 'PGRST002' || // Schema cache error
+            error.message.includes('timeout') || // Generic timeout
+            error.message.includes('timed out')
+          ) {
+            const backoffTime = Math.min(500 * Math.pow(2, retryCount), 8000); // Exponential backoff with max of 8 seconds
+            console.log(`Retrying in ${backoffTime / 1000} seconds...`);
+            setTimeout(() => fetchNotes(retryCount + 1), backoffTime);
             return;
           }
           
@@ -183,15 +218,27 @@ function App() {
         });
         
         setNotes(sortedNotes);
-      } catch (error) {
-        console.error('Error in fetchNotes:', error);
+        setIsLoading(false);
+      } catch (error: unknown) {
+        // Log the error with better formatting
+        console.error('Error in fetchNotes:', 
+          error instanceof Error ? error.message : String(error)
+        );
         
-        // Retry on unexpected errors
-        console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
-        setTimeout(() => fetchNotes(retryCount + 1), (retryCount + 1) * 2000);
-      } finally {
-        if (retryCount === 0) {
-          setIsLoading(false);
+        // Retry with exponential backoff
+        const backoffTime = Math.min(500 * Math.pow(2, retryCount), 8000);
+        console.log(`Retrying in ${backoffTime / 1000} seconds...`);
+        setTimeout(() => fetchNotes(retryCount + 1), backoffTime);
+        
+        // If this is the third retry, show a message to the user
+        if (retryCount === 2) {
+          setTipMessage('Connection is slow. Still trying to load notes...');
+          setShowTip(true);
+          
+          // Hide tip after 8 seconds
+          setTimeout(() => {
+            setShowTip(false);
+          }, 8000);
         }
       }
     };

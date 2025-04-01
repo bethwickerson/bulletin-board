@@ -32,8 +32,15 @@ export const supabase = createClient<Database>(
       },
       // Add fetch options with timeout and retry logic
       fetch: (url, options) => {
-        const fetchWithTimeout = (attempt = 1, maxAttempts = 3): Promise<Response> => {
-          const timeout = attempt * 5000; // Increase timeout with each retry
+        // Use shorter timeouts and more retries for production
+        const maxAttempts = 5;
+        const baseTimeout = 3000; // Start with a shorter timeout
+        
+        const fetchWithTimeout = (attempt = 1): Promise<Response> => {
+          // Use a shorter initial timeout and increase more gradually
+          const timeout = Math.min(baseTimeout * attempt, 10000); // Cap at 10 seconds
+          
+          console.log(`Attempt ${attempt}/${maxAttempts} with timeout ${timeout}ms`);
           
           return Promise.race([
             fetch(url, {
@@ -44,9 +51,19 @@ export const supabase = createClient<Database>(
               setTimeout(() => reject(new Error(`Request timed out after ${timeout}ms`)), timeout)
             )
           ]).catch(error => {
+            console.error(`Request failed (attempt ${attempt}/${maxAttempts}):`, error.message);
+            
             if (attempt < maxAttempts) {
-              console.log(`Retrying request (${attempt}/${maxAttempts})...`);
-              return fetchWithTimeout(attempt + 1, maxAttempts);
+              console.log(`Retrying request in ${attempt * 500}ms...`);
+              // Use a shorter backoff time
+              return new Promise(resolve => 
+                setTimeout(() => resolve(fetchWithTimeout(attempt + 1)), attempt * 500)
+              );
+            }
+            
+            // If we've exhausted all retries, throw a more descriptive error
+            if (error.message.includes('timeout')) {
+              throw new Error(`Database connection timed out after ${maxAttempts} attempts. Please try again later.`);
             }
             throw error;
           });
