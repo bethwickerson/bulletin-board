@@ -357,32 +357,34 @@ const PostIt: React.FC<PostItProps> = ({
     >
       <div className="flex justify-between items-start mb-2">
         <div className="flex items-center space-x-2">
-          {/* Only show grip and rotate buttons when note is active */}
-          {isActive && (
-            <GripHorizontal className="text-gray-600" size={20} />
-          )}
-          {isActive && (
-            <button
-              onMouseDown={handleRotateStart}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label="Rotate note"
-              title="Rotate note"
-            >
-              <RotateCw size={18} />
-            </button>
-          )}
+          {/* Maintain space for icons but only show them when note is active */}
+          <GripHorizontal 
+            className="text-gray-600" 
+            size={20} 
+            style={{ opacity: isActive ? 1 : 0, transition: 'opacity 0.2s' }}
+          />
+          <button
+            onMouseDown={handleRotateStart}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Rotate note"
+            title="Rotate note"
+            style={{ opacity: isActive ? 1 : 0, transition: 'opacity 0.2s' }}
+            disabled={!isActive}
+          >
+            <RotateCw size={18} />
+          </button>
           
-          {/* Show color picker button only for active and editable notes */}
-          {isActive && isEditable && (
-            <button
-              onClick={handleColorClick}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label="Change color"
-              title="Change color"
-            >
-              <Palette size={18} />
-            </button>
-          )}
+          {/* Color picker button - always present but only visible when active and editable */}
+          <button
+            onClick={handleColorClick}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Change color"
+            title="Change color"
+            style={{ opacity: (isActive && isEditable) ? 1 : 0, transition: 'opacity 0.2s' }}
+            disabled={!(isActive && isEditable)}
+          >
+            <Palette size={18} />
+          </button>
         </div>
         
         {/* Show delete button only for active and editable notes */}
