@@ -20,7 +20,7 @@ export const supabase = createClient<Database>(
     },
     realtime: {
       params: {
-        eventsPerSecond: 2 // Further reduced from 5 to lower server load
+        eventsPerSecond: 1 // Reduced to absolute minimum to lower server load
       }
     },
     db: {
