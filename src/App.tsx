@@ -131,9 +131,9 @@ function App() {
       rotation: note.rotation || undefined
     });
 
-    // Function to fetch notes with simplified retry logic
+    // Function to fetch notes with optimized retry logic
     const fetchNotes = async (retryCount = 0) => {
-      const maxRetries = 5;
+      const maxRetries = 3; // Reduced from 5
       
       if (retryCount > maxRetries) {
         console.error('Max retries reached when fetching notes');
@@ -156,13 +156,13 @@ function App() {
       setIsLoading(true);
       
       try {
-        // Fetch notes with a limit to reduce data size
-        // Let the Supabase client handle the timeout and retry logic
+        // Fetch only essential fields to reduce payload size
+        // Use a more efficient query with only the fields we need
         const { data, error } = await supabase
           .from('notes')
-          .select('*')
-          .order('created_at', { ascending: false }) // Newest first
-          .limit(100); // Limit to 100 notes to reduce payload size
+          .select('id, content, position_x, position_y, author, color, type, meme_url, created_at, width, height, rotation')
+          .order('created_at', { ascending: false }); // Newest first
+          // No limit - fetch all notes
 
         if (error) {
           console.error('Error fetching notes:', error);
@@ -172,9 +172,12 @@ function App() {
             error.code === '57014' || // Statement timeout
             error.code === 'PGRST002' || // Schema cache error
             error.message.includes('timeout') || // Generic timeout
-            error.message.includes('timed out')
+            error.message.includes('timed out') ||
+            error.code === '500' || // Internal server error
+            error.code === '503' // Service unavailable
           ) {
-            const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000); // Exponential backoff with max of 10 seconds
+            // Use a longer exponential backoff with max of 15 seconds
+            const backoffTime = Math.min(2000 * Math.pow(2, retryCount), 15000);
             console.log(`Retrying in ${backoffTime / 1000} seconds...`);
             setTimeout(() => fetchNotes(retryCount + 1), backoffTime);
             return;
@@ -231,14 +234,18 @@ function App() {
 
     fetchNotes();
 
-    // Subscribe only to changes for the user's own notes if there are any
+    // Optimize realtime subscriptions to reduce server load
     let channel;
     
+    // Only subscribe to user's own notes to reduce server load
     if (myNoteIds.length > 0) {
+      // Limit the number of notes we subscribe to (max 5)
+      const limitedNoteIds = myNoteIds.slice(0, 5);
+      
       // Create a filter string for the user's notes
-      const filterStr = myNoteIds.length === 1 
-        ? `id=eq.${myNoteIds[0]}` 
-        : `id=in.(${myNoteIds.join(',')})`;
+      const filterStr = limitedNoteIds.length === 1 
+        ? `id=eq.${limitedNoteIds[0]}` 
+        : `id=in.(${limitedNoteIds.join(',')})`;
       
       channel = supabase.channel('my_notes_changes')
         .on(
@@ -249,28 +256,64 @@ function App() {
             table: 'notes',
             filter: filterStr
           },
-          (payload) => {
+          (payload: {
+            schema: string;
+            table: string;
+            commit_timestamp: string;
+            eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+            new: Record<string, unknown> | null;
+            old: Record<string, unknown> | null;
+          }) => {
             console.log('Change received for my note:', payload);
-            // Refresh all notes when user's own notes change
-            fetchNotes();
+            // Only refresh the specific note that changed instead of all notes
+            const changedNoteId = (payload.new?.id as string | undefined) || (payload.old?.id as string | undefined);
+            
+            if (changedNoteId) {
+              if (payload.eventType === 'DELETE') {
+                // If a note was deleted, remove it from the local state
+                setNotes(prev => prev.filter(note => note.id !== changedNoteId));
+              } else {
+                // For other changes, refresh all notes (could be optimized further)
+                fetchNotes();
+              }
+            } else {
+              // Fallback if we can't determine the note ID
+              fetchNotes();
+            }
           }
         )
         .subscribe((status) => {
           console.log('Realtime subscription status:', status);
         });
     } else {
-      // If no notes yet, just subscribe to all notes table changes
+      // If no notes yet, subscribe to INSERT events only with a throttled refresh
+      let lastRefreshTime = 0;
+      const REFRESH_THROTTLE = 10000; // 10 seconds minimum between refreshes
+      
       channel = supabase.channel('notes_changes')
         .on(
           'postgres_changes',
           {
-            event: 'INSERT',
+            event: 'INSERT', // Only listen for new notes
             schema: 'public',
             table: 'notes'
           },
-          (payload) => {
+          (payload: {
+            schema: string;
+            table: string;
+            commit_timestamp: string;
+            eventType: 'INSERT';
+            new: Record<string, unknown> | null;
+            old: Record<string, unknown> | null;
+          }) => {
             console.log('New note inserted:', payload);
-            fetchNotes();
+            
+            // Throttle refreshes to reduce server load
+            const now = Date.now();
+            if (now - lastRefreshTime > REFRESH_THROTTLE) {
+              fetchNotes();
+              lastRefreshTime = now;
+            }
           }
         )
         .subscribe((status) => {

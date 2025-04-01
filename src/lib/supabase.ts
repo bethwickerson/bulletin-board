@@ -20,7 +20,7 @@ export const supabase = createClient<Database>(
     },
     realtime: {
       params: {
-        eventsPerSecond: 5 // Reduced from 10 to lower server load
+        eventsPerSecond: 2 // Further reduced from 5 to lower server load
       }
     },
     db: {
@@ -32,13 +32,13 @@ export const supabase = createClient<Database>(
       },
       // Add fetch options with timeout and retry logic
       fetch: (url, options) => {
-        // Use shorter timeouts and more retries for production
-        const maxAttempts = 5;
-        const baseTimeout = 3000; // Start with a shorter timeout
+        // Use longer timeouts and fewer retries for better reliability
+        const maxAttempts = 3; // Reduced from 5 to avoid overwhelming the server
+        const baseTimeout = 10000; // Start with a longer timeout (10 seconds)
         
         const fetchWithTimeout = (attempt = 1): Promise<Response> => {
-          // Use a shorter initial timeout and increase more gradually
-          const timeout = Math.min(baseTimeout * attempt, 10000); // Cap at 10 seconds
+          // Use a longer initial timeout to give the server more time to respond
+          const timeout = Math.min(baseTimeout * attempt, 30000); // Cap at 30 seconds
           
           console.log(`Attempt ${attempt}/${maxAttempts} with timeout ${timeout}ms`);
           
@@ -54,10 +54,11 @@ export const supabase = createClient<Database>(
             console.error(`Request failed (attempt ${attempt}/${maxAttempts}):`, error.message);
             
             if (attempt < maxAttempts) {
-              console.log(`Retrying request in ${attempt * 500}ms...`);
-              // Use a shorter backoff time
+              // Use a longer exponential backoff time
+              const backoffTime = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
+              console.log(`Retrying request in ${backoffTime}ms...`);
               return new Promise(resolve => 
-                setTimeout(() => resolve(fetchWithTimeout(attempt + 1)), attempt * 500)
+                setTimeout(() => resolve(fetchWithTimeout(attempt + 1)), backoffTime)
               );
             }
             
