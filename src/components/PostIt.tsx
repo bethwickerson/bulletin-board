@@ -374,29 +374,29 @@ const PostIt: React.FC<PostItProps> = ({
             <RotateCw size={18} />
           </button>
           
-          {/* Color picker button - always present but only visible when active and editable */}
+          {/* Show color picker button only for active and editable notes */}
+          {isActive && isEditable && (
           <button
             onClick={handleColorClick}
             className="text-gray-400 hover:text-gray-600 transition-colors"
             aria-label="Change color"
             title="Change color"
-            style={{ opacity: (isActive && isEditable) ? 1 : 0, transition: 'opacity 0.2s' }}
-            disabled={!(isActive && isEditable)}
           >
             <Palette size={18} />
           </button>
+          )}
         </div>
         
         {/* Show delete button only for active and editable notes */}
         {isActive && isEditable && (
-          <button 
-            onClick={handleDelete}
-            className="text-gray-400 hover:text-red-500 transition-colors"
-            aria-label="Delete note"
-            title="Delete note"
-          >
-            <Trash2 size={18} />
-          </button>
+        <button 
+          onClick={handleDelete}
+          className="text-gray-400 hover:text-red-500 transition-colors"
+          aria-label="Delete note"
+          title="Delete note"
+        >
+          <Trash2 size={18} />
+        </button>
         )}
       </div>
       
