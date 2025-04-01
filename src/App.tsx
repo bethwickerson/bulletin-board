@@ -131,7 +131,7 @@ function App() {
       rotation: note.rotation || undefined
     });
 
-    // Function to fetch notes with improved retry logic
+    // Function to fetch notes with simplified retry logic
     const fetchNotes = async (retryCount = 0) => {
       const maxRetries = 5;
       
@@ -156,27 +156,13 @@ function App() {
       setIsLoading(true);
       
       try {
-        // Use a shorter timeout for each attempt
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Local fetch timeout')), 5000);
-        });
-        
         // Fetch notes with a limit to reduce data size
-        const fetchPromise = supabase
+        // Let the Supabase client handle the timeout and retry logic
+        const { data, error } = await supabase
           .from('notes')
           .select('*')
           .order('created_at', { ascending: false }) // Newest first
           .limit(100); // Limit to 100 notes to reduce payload size
-        
-        // Race between fetch and timeout
-        const result = await Promise.race([
-          fetchPromise,
-          timeoutPromise.then(() => {
-            throw new Error('Local fetch timeout');
-          })
-        ]);
-        
-        const { data, error } = result;
 
         if (error) {
           console.error('Error fetching notes:', error);
@@ -188,7 +174,7 @@ function App() {
             error.message.includes('timeout') || // Generic timeout
             error.message.includes('timed out')
           ) {
-            const backoffTime = Math.min(500 * Math.pow(2, retryCount), 8000); // Exponential backoff with max of 8 seconds
+            const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000); // Exponential backoff with max of 10 seconds
             console.log(`Retrying in ${backoffTime / 1000} seconds...`);
             setTimeout(() => fetchNotes(retryCount + 1), backoffTime);
             return;
@@ -226,7 +212,7 @@ function App() {
         );
         
         // Retry with exponential backoff
-        const backoffTime = Math.min(500 * Math.pow(2, retryCount), 8000);
+        const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000);
         console.log(`Retrying in ${backoffTime / 1000} seconds...`);
         setTimeout(() => fetchNotes(retryCount + 1), backoffTime);
         
