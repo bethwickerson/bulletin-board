@@ -14,7 +14,9 @@ const openai = new OpenAI({
 const REFERENCE_IMAGE_URL = 'https://bdayboard.netlify.app/reference.jpg';
 
 // Helper function to download an image and convert it to a base64 data URL
-// This is now optional and only used if explicitly requested
+// NOTE: This function is currently not used but kept for potential future use
+// when base64 encoding might be needed again
+/*
 async function imageUrlToBase64(url: string): Promise<string> {
   try {
     const response = await fetch(url);
@@ -28,6 +30,7 @@ async function imageUrlToBase64(url: string): Promise<string> {
     return ''; // Return empty string instead of throwing to prevent function failure
   }
 }
+*/
 
 export const handler: Handler = async (event) => {
   // Add CORS headers

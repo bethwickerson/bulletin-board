@@ -117,49 +117,26 @@ function App() {
       console.log('Fetching notes...');
       setIsLoading(true);
       
-      // Limit the number of notes to fetch to prevent timeout
-      const { data, error } = await supabase
-        .from('notes')
-        .select('*')
-        .order('created_at', { ascending: false }) // Newest first
-        .limit(100); // Limit to 100 notes to prevent timeout
-
-      if (error) {
-        console.error('Error fetching notes:', error);
-        return;
-      }
-
-      console.log('Notes fetched:', data);
-      console.log('Number of notes:', data?.length || 0);
-      
-      if (data) {
-        // Update positions of all notes to be visible
-        for (const note of data) {
-          if (note.position_x > 1000 || note.position_y > 1000) {
-            console.log('Updating position of note:', note.id);
-            // Update the position in the database
-            await supabase
-              .from('notes')
-              .update({
-                position_x: 100 + Math.random() * 300, // Random position in the visible area
-                position_y: 100 + Math.random() * 300, // Random position in the visible area
-              })
-              .eq('id', note.id);
-          }
-        }
-        
-        // Fetch the notes again after updating positions, with limit
-        const { data: updatedData } = await supabase
+      try {
+        // Fetch all notes without limiting or updating positions
+        const { data, error } = await supabase
           .from('notes')
           .select('*')
-          .order('created_at', { ascending: false }) // Newest first
-          .limit(100); // Limit to 100 notes to prevent timeout
+          .order('created_at', { ascending: false }); // Newest first
+
+        if (error) {
+          console.error('Error fetching notes:', error);
+          return;
+        }
+
+        console.log('Notes fetched:', data);
+        console.log('Number of notes:', data?.length || 0);
         
-        if (!updatedData) {
+        if (!data) {
           return;
         }
         
-        const mappedNotes = updatedData.map(note => {
+        const mappedNotes = data.map(note => {
           console.log('Processing note:', note);
           console.log('Note ID:', note.id);
           console.log('Note Type:', note.type);
@@ -186,9 +163,11 @@ function App() {
         console.log('Mapped notes:', mappedNotes);
         console.log('Number of mapped notes:', mappedNotes.length);
         setNotes(mappedNotes);
+      } catch (error) {
+        console.error('Error in fetchNotes:', error);
+      } finally {
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
     };
 
     fetchNotes();
@@ -394,7 +373,7 @@ function App() {
     
     // Reset active note after drag ends
     setActiveNoteId(null);
-  }, [notes]);
+  }, []);
   
   const handleNoteActivate = useCallback((id: string) => {
     // Allow activation of any note for dragging purposes
