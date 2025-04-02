@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X } from 'lucide-react';
+import { X, AlertTriangle } from 'lucide-react';
 
 interface AddNoteDialogProps {
   isOpen: boolean;
@@ -20,6 +20,7 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
   const [type, setType] = useState<'text' | 'meme' | 'image'>('meme');
   const [style, setStyle] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [memeGenerationFailed, setMemeGenerationFailed] = useState(false);
 
   const [imageData, setImageData] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -46,31 +47,66 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
     reader.readAsDataURL(file);
   };
 
+  // Reset meme generation failed state when dialog opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setMemeGenerationFailed(false);
+    }
+  }, [isOpen]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (type === 'meme') {
       setIsGenerating(true);
-      // Create a prompt that includes the style if specified
-      const enhancedPrompt = style ? `${content} (Style: ${style})` : content;
-      await onGenerateMeme(enhancedPrompt, author);
-      setIsGenerating(false);
+      try {
+        // Create a prompt that includes the style if specified
+        const enhancedPrompt = style ? `${content} (Style: ${style})` : content;
+        await onGenerateMeme(enhancedPrompt, author);
+        
+        // Reset form and close dialog on success
+        setContent('');
+        setAuthor('');
+        setStyle('');
+        setImageData(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        onClose();
+      } catch (error) {
+        console.error('Error in meme generation:', error);
+        setMemeGenerationFailed(true);
+      } finally {
+        setIsGenerating(false);
+      }
     } else if (type === 'image') {
       if (!imageData) {
         alert('Please upload an image');
         return;
       }
       onAddNote(content, author, type, imageData);
+      
+      // Reset form and close dialog
+      setContent('');
+      setAuthor('');
+      setStyle('');
+      setImageData(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      onClose();
     } else {
       onAddNote(content, author, type);
+      
+      // Reset form and close dialog
+      setContent('');
+      setAuthor('');
+      setStyle('');
+      setImageData(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      onClose();
     }
-    setContent('');
-    setAuthor('');
-    setStyle('');
-    setImageData(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-    onClose();
   };
 
   return (
@@ -163,18 +199,46 @@ const AddNoteDialog: React.FC<AddNoteDialogProps> = ({
               </div>
 
               {type === 'meme' && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Meme Style (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={style}
-                    onChange={(e) => setStyle(e.target.value)}
-                    className="w-full rounded border p-2"
-                    placeholder="e.g., cartoon, pixel art, watercolor, etc."
-                  />
-                </div>
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Meme Style (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={style}
+                      onChange={(e) => setStyle(e.target.value)}
+                      className="w-full rounded border p-2"
+                      placeholder="e.g., cartoon, pixel art, watercolor, etc."
+                    />
+                  </div>
+                  
+                  {memeGenerationFailed && (
+                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                      <div className="flex items-start">
+                        <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-yellow-800">
+                            Meme generation failed
+                          </p>
+                          <p className="text-sm text-yellow-700 mt-1">
+                            The meme generator is experiencing issues. Try a simpler prompt, or switch to uploading an image instead.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setType('image');
+                              setMemeGenerationFailed(false);
+                            }}
+                            className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+                          >
+                            Switch to image upload
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

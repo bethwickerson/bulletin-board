@@ -19,7 +19,7 @@ export async function fetchNotes(
 ): Promise<Note[]> {
   const cacheKey = `notes_page_${page}_${pageSize}`;
   
-  // Try to get from cache first
+  // Try to get from cache first with a much longer cache duration
   if (useCache && cache.has(cacheKey)) {
     console.log(`Using cached notes for page ${page}`);
     return cache.get<Note[]>(cacheKey) || [];
@@ -30,7 +30,7 @@ export async function fetchNotes(
     const start = page * pageSize;
     const end = start + pageSize - 1;
     
-    // Fetch notes from Supabase
+    // Fetch notes from Supabase with minimal fields to reduce data transfer
     const { data, error } = await supabase
       .from('notes')
       .select('id, content, position_x, position_y, author, color, type, meme_url, created_at, width, height, rotation')
@@ -46,8 +46,9 @@ export async function fetchNotes(
       return [];
     }
     
-    // Cache the results
-    cache.set(cacheKey, data, 60 * 1000); // Cache for 60 seconds
+    // Cache the results for much longer (10 minutes instead of 60 seconds)
+    // This significantly reduces database load since notes don't change frequently
+    cache.set(cacheKey, data, 10 * 60 * 1000); // Cache for 10 minutes
     
     return data;
   } catch (error) {
@@ -64,7 +65,7 @@ export async function fetchNotes(
 export async function getNotesCount(useCache = true): Promise<number> {
   const cacheKey = 'notes_count';
   
-  // Try to get from cache first
+  // Try to get from cache first with a much longer cache duration
   if (useCache && cache.has(cacheKey)) {
     console.log('Using cached notes count');
     return cache.get<number>(cacheKey) || 0;
@@ -80,9 +81,9 @@ export async function getNotesCount(useCache = true): Promise<number> {
       return 0;
     }
     
-    // Cache the result
+    // Cache the result for much longer (10 minutes instead of 60 seconds)
     if (count !== null) {
-      cache.set(cacheKey, count, 60 * 1000); // Cache for 60 seconds
+      cache.set(cacheKey, count, 10 * 60 * 1000); // Cache for 10 minutes
     }
     
     return count || 0;
@@ -185,16 +186,39 @@ export async function deleteNote(id: string): Promise<boolean> {
 
 /**
  * Invalidate all notes-related cache entries
+ * This is now more selective to reduce unnecessary database queries
  */
 export function invalidateNotesCache(): void {
-  // Clear all cache entries that start with 'notes_'
-  // Use a different approach to avoid accessing private property
-  const cacheKeys = ['notes_count'];
-  // Add page cache keys for the first 10 pages (reasonable assumption)
-  for (let i = 0; i < 10; i++) {
-    cacheKeys.push(`notes_page_${i}_20`);
-  }
+  // Only invalidate the count cache when absolutely necessary
+  // This prevents unnecessary reloading of all notes
+  cache.remove('notes_count');
   
-  // Clear all identified cache keys
-  cacheKeys.forEach(key => cache.remove(key));
+  // We no longer invalidate all page caches automatically
+  // This is a significant optimization to reduce database load
+  console.log('Selectively invalidated notes count cache');
+}
+
+/**
+ * Fetch a single note by ID (optimized for position/size/rotation updates)
+ * @param id Note ID
+ * @returns The note or null if not found
+ */
+export async function fetchNoteById(id: string): Promise<Partial<Note> | null> {
+  try {
+    const { data, error } = await supabase
+      .from('notes')
+      .select('id, position_x, position_y, width, height, rotation')
+      .eq('id', id)
+      .single();
+      
+    if (error) {
+      console.error(`Error fetching note ${id}:`, error);
+      return null;
+    }
+    
+    return data as Partial<Note>;
+  } catch (error) {
+    console.error(`Unexpected error fetching note ${id}:`, error);
+    return null;
+  }
 }

@@ -199,27 +199,22 @@ function App() {
 
     loadNotes();
 
-    // Optimize realtime subscriptions to reduce server load
+    // Significantly reduce realtime subscriptions to minimize database load
     let channel;
     
-    // Only subscribe to user's own notes to reduce server load
+    // Only subscribe to the most recent note created by the user to reduce server load
     if (myNoteIds.length > 0) {
-      // Limit the number of notes we subscribe to (max 5)
-      const limitedNoteIds = myNoteIds.slice(0, 5);
+      // Only subscribe to the most recent note
+      const mostRecentNoteId = myNoteIds[myNoteIds.length - 1];
       
-      // Create a filter string for the user's notes
-      const filterStr = limitedNoteIds.length === 1 
-        ? `id=eq.${limitedNoteIds[0]}` 
-        : `id=in.(${limitedNoteIds.join(',')})`;
-      
-      channel = supabase.channel('my_notes_changes')
+      channel = supabase.channel('my_recent_note_changes')
         .on(
           'postgres_changes',
           {
             event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
             schema: 'public',
             table: 'notes',
-            filter: filterStr
+            filter: `id=eq.${mostRecentNoteId}`
           },
           (payload: {
             schema: string;
@@ -229,21 +224,31 @@ function App() {
             new: Record<string, unknown> | null;
             old: Record<string, unknown> | null;
           }) => {
-            console.log('Change received for my note:', payload);
-            // Only refresh the specific note that changed instead of all notes
-            const changedNoteId = (payload.new?.id as string | undefined) || (payload.old?.id as string | undefined);
+            console.log('Change received for my recent note:', payload);
             
-            if (changedNoteId) {
-              if (payload.eventType === 'DELETE') {
-                // If a note was deleted, remove it from the local state
-                setNotes(prev => prev.filter(note => note.id !== changedNoteId));
-              } else {
-                // For other changes, refresh all notes (could be optimized further)
-                fetchNotes();
-              }
-            } else {
-              // Fallback if we can't determine the note ID
-              fetchNotes();
+            if (payload.eventType === 'DELETE') {
+              // If the note was deleted, remove it from the local state
+              setNotes(prev => prev.filter(note => note.id !== mostRecentNoteId));
+              // Also remove from myNoteIds
+              setMyNoteIds(prev => prev.filter(id => id !== mostRecentNoteId));
+            } else if (payload.eventType === 'UPDATE' && payload.new) {
+              // For updates, just update the specific note in the local state
+              setNotes(prev => prev.map(note => 
+                note.id === mostRecentNoteId 
+                  ? {
+                      ...note,
+                      content: (payload.new?.content as string) || note.content,
+                      position: {
+                        x: (payload.new?.position_x as number) || note.position.x,
+                        y: (payload.new?.position_y as number) || note.position.y,
+                      },
+                      color: (payload.new?.color as string) || note.color,
+                      width: (payload.new?.width as number) || note.width,
+                      height: (payload.new?.height as number) || note.height,
+                      rotation: (payload.new?.rotation as number) || note.rotation,
+                    }
+                  : note
+              ));
             }
           }
         )
@@ -251,44 +256,28 @@ function App() {
           console.log('Realtime subscription status:', status);
         });
     } else {
-      // If no notes yet, subscribe to INSERT events only with a throttled refresh
-      let lastRefreshTime = 0;
-      const REFRESH_THROTTLE = 10000; // 10 seconds minimum between refreshes
+      // If no notes yet, use a manual refresh approach instead of realtime
+      // This completely eliminates the realtime subscription when not needed
+      console.log('No user notes yet, skipping realtime subscription');
       
-      channel = supabase.channel('notes_changes')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT', // Only listen for new notes
-            schema: 'public',
-            table: 'notes'
-          },
-          (payload: {
-            schema: string;
-            table: string;
-            commit_timestamp: string;
-            eventType: 'INSERT';
-            new: Record<string, unknown> | null;
-            old: Record<string, unknown> | null;
-          }) => {
-            console.log('New note inserted:', payload);
-            
-            // Throttle refreshes to reduce server load
-            const now = Date.now();
-            if (now - lastRefreshTime > REFRESH_THROTTLE) {
-              fetchNotes();
-              lastRefreshTime = now;
-            }
-          }
-        )
-        .subscribe((status) => {
-          console.log('Realtime subscription status:', status);
-        });
+      // Set up a periodic refresh every 30 seconds instead of realtime
+      const refreshInterval = setInterval(() => {
+        console.log('Performing periodic refresh of notes');
+        fetchNotes();
+      }, 30000); // 30 seconds
+      
+      // Clean up the interval on unmount
+      return () => {
+        clearInterval(refreshInterval);
+      };
     }
 
+    // Only unsubscribe if we created a channel
     return () => {
-      console.log('Unsubscribing from channel');
-      channel.unsubscribe();
+      if (channel) {
+        console.log('Unsubscribing from channel');
+        channel.unsubscribe();
+      }
     };
   }, [myNoteIds]); // Re-subscribe when myNoteIds changes
 
@@ -334,34 +323,71 @@ function App() {
   };
 
   const handleGenerateMeme = async (prompt: string, author: string) => {
+    setIsLoading(true);
+    
+    // Show a message to the user that this might take a moment
+    setTipMessage('Generating your meme... This might take up to 30 seconds.');
+    setShowTip(true);
+    
     try {
-      setIsLoading(true);
-      console.log('Generating meme with prompt:', prompt);
-      console.log('Calling generate-meme function...');
+      // Maximum number of retries
+      const MAX_RETRIES = 3;
+      let retryCount = 0;
+      let success = false;
+      let responseData;
       
-      // Step 1: Generate the meme image
-      const response = await fetch('/.netlify/functions/generate-meme', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          prompt,
-          style: prompt.includes("Style:") ? undefined : "cartoon sticker" // Default style if not specified
-        }),
-      });
-
-      console.log('Response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
-        setIsLoading(false);
-        throw new Error(`Failed to generate meme: ${response.status} ${response.statusText}`);
+      // Retry logic
+      while (retryCount < MAX_RETRIES && !success) {
+        try {
+          console.log(`Attempt ${retryCount + 1} of ${MAX_RETRIES}: Calling generate-meme function...`);
+          
+          // Step 1: Generate the meme image with a longer timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+          
+          const response = await fetch('/.netlify/functions/generate-meme', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              prompt,
+              style: prompt.includes("Style:") ? undefined : "cartoon sticker" // Default style if not specified
+            }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          console.log('Response status:', response.status);
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Attempt ${retryCount + 1} error response:`, errorText);
+            throw new Error(`Failed to generate meme: ${response.status}`);
+          }
+          
+          responseData = await response.json();
+          console.log('Response data:', responseData);
+          success = true;
+          
+        } catch (error) {
+          retryCount++;
+          console.error(`Attempt ${retryCount} failed:`, error);
+          
+          if (retryCount < MAX_RETRIES) {
+            console.log(`Retrying in 2 seconds... (${retryCount}/${MAX_RETRIES})`);
+            // Update the tip message to inform the user about the retry
+            setTipMessage(`Retrying meme generation... Attempt ${retryCount + 1}/${MAX_RETRIES}`);
+            // Wait 2 seconds before retrying
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
       }
-
-      const responseData = await response.json();
-      console.log('Response data:', responseData);
+      
+      if (!success) {
+        throw new Error(`Failed to generate meme after ${MAX_RETRIES} attempts`);
+      }
       
       // Get the URL from the response
       const { url, message } = responseData;
@@ -370,12 +396,18 @@ function App() {
       
       if (!url || !url.startsWith('http')) {
         setIsLoading(false);
-        throw new Error('Invalid meme URL received from OpenAI');
+        setTipMessage('Error: Invalid image URL received. Please try again with a simpler prompt.');
+        setShowTip(true);
+        setTimeout(() => setShowTip(false), 8000);
+        throw new Error('Invalid image URL received from server');
       }
       
-      // Use the direct URL since base64 is no longer provided
+      // Use the direct URL
       const imageUrl = url;
       console.log('Using image URL:', imageUrl);
+      
+      // Hide the "generating" message
+      setShowTip(false);
       
       // Step 2: Add the meme as a new note
       console.log('Adding meme note to database...');
@@ -397,29 +429,40 @@ function App() {
       // Use our helper function to add the note
       const newNote = await addNote(memeNoteData);
       
-      if (newNote) {
-        console.log('Meme note added successfully:', newNote);
-        
-        // Add the new meme note ID to my notes
-        setMyNoteIds(prev => [...prev, newNote.id]);
-        
-        // Show tip message
-        setTipMessage('Tip: You can drag, resize, rotate, and change the color of your meme!');
-        setShowTip(true);
-        
-        // Hide tip after 8 seconds
-        setTimeout(() => {
-          setShowTip(false);
-        }, 8000);
-      } else {
-        console.error('Failed to add meme note');
+      if (!newNote) {
+        throw new Error('Failed to add meme note to database');
       }
       
+      console.log('Meme note added successfully:', newNote);
+      
+      // Add the new meme note ID to my notes
+      setMyNoteIds(prev => [...prev, newNote.id]);
+      
+      // Show success message
+      setTipMessage('Meme created! You can drag, resize, rotate, and change the color of your meme!');
+      setShowTip(true);
+      
+      // Hide tip after 8 seconds
+      setTimeout(() => {
+        setShowTip(false);
+      }, 8000);
+      
       setIsLoading(false);
+      
+      // Return successfully
+      return;
       
     } catch (error) {
       console.error('Error generating meme:', error);
       setIsLoading(false);
+      
+      // Show a user-friendly error message
+      setTipMessage(`Error: ${error instanceof Error ? error.message : 'Failed to generate meme'}. Please try again with a simpler prompt.`);
+      setShowTip(true);
+      setTimeout(() => setShowTip(false), 8000);
+      
+      // Re-throw the error so it can be caught by the dialog component
+      throw error;
     }
   };
 
@@ -432,6 +475,13 @@ function App() {
 
     if (!success) {
       console.error('Error updating note position');
+    } else {
+      // Update the note in the local state to avoid a database fetch
+      setNotes(prev => prev.map(note => 
+        note.id === id 
+          ? { ...note, position: { x: position.x, y: position.y } }
+          : note
+      ));
     }
     
     // Reset active note after drag ends
@@ -487,6 +537,13 @@ function App() {
       
     if (!success) {
       console.error('Error updating note color');
+    } else {
+      // Update the note in the local state to avoid a database fetch
+      setNotes(prev => prev.map(note => 
+        note.id === id 
+          ? { ...note, color: finalColor }
+          : note
+      ));
     }
   }, [myNoteIds]);
 
@@ -501,6 +558,12 @@ function App() {
     
     if (success) {
       console.log('Note size updated successfully');
+      // Update the note in the local state to avoid a database fetch
+      setNotes(prev => prev.map(note => 
+        note.id === id 
+          ? { ...note, width, height }
+          : note
+      ));
     } else {
       console.error('Error updating note size');
     }
@@ -510,12 +573,21 @@ function App() {
     // Allow rotation of all notes, not just the user's own notes
     console.log('Updating note rotation:', id, rotation);
     
+    // Round the rotation to an integer since the database field is an integer
+    const roundedRotation = Math.round(rotation);
+    
     const success = await updateNote(id, {
-      rotation
+      rotation: roundedRotation
     });
     
     if (success) {
       console.log('Note rotation updated successfully');
+      // Update the note in the local state to avoid a database fetch
+      setNotes(prev => prev.map(note => 
+        note.id === id 
+          ? { ...note, rotation: roundedRotation }
+          : note
+      ));
     } else {
       console.error('Error updating note rotation');
     }
