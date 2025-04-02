@@ -91,8 +91,6 @@ export const handler: Handler = async (event) => {
     // Add the reference image URL directly in the prompt
     enhancedPrompt += ` Make the person in the meme look like the person in this reference image: ${REFERENCE_IMAGE_URL}`;
     
-    enhancedPrompt += ` Make the image look like a sticker.`;
-    
     console.log('Enhanced prompt with reference image:', enhancedPrompt);
     
     // Always use DALL-E 3 for image generation

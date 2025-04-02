@@ -9,4 +9,5 @@ export interface Note {
   width?: number;
   height?: number;
   rotation?: number;
+  zIndex?: number; // For UI display only, not stored in database
 }

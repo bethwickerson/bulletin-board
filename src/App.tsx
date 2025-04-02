@@ -169,13 +169,21 @@ function App() {
           }
         }
         
-        // Sort notes to prioritize user's own notes at the top
+        // Sort notes to ensure user's own notes appear last (on top visually)
+        // This uses the natural DOM layering where later elements appear on top
         const sortedNotes = [...allNotes.map(note => mapNoteFromDb(note))].sort((a, b) => {
           const aIsOwn = myNoteIds.includes(a.id);
           const bIsOwn = myNoteIds.includes(b.id);
           
-          if (aIsOwn && !bIsOwn) return -1;
-          if (!aIsOwn && bIsOwn) return 1;
+          // If both are user's notes or both are not user's notes, sort by ID (proxy for creation time)
+          if ((aIsOwn && bIsOwn) || (!aIsOwn && !bIsOwn)) {
+            // Most recent note (likely higher ID) should be last (on top)
+            return a.id.localeCompare(b.id);
+          }
+          
+          // User's notes should appear after (on top of) other notes
+          if (aIsOwn && !bIsOwn) return 1; // Changed from -1 to 1
+          if (!aIsOwn && bIsOwn) return -1; // Changed from 1 to -1
           return 0;
         });
         
@@ -491,6 +499,20 @@ function App() {
   const handleNoteActivate = useCallback((id: string) => {
     // Allow activation of any note for dragging purposes
     setActiveNoteId(id);
+    
+    // Bring the activated note to the front by moving it to the end of the array
+    // This uses the natural DOM layering where later elements appear on top
+    setNotes(prev => {
+      // Find the note to bring to front
+      const noteToFront = prev.find(note => note.id === id);
+      if (!noteToFront) return prev;
+      
+      // Create a new array without the activated note
+      const otherNotes = prev.filter(note => note.id !== id);
+      
+      // Return a new array with the activated note at the end (on top visually)
+      return [...otherNotes, noteToFront];
+    });
   }, []);
   
   const handleDeleteNote = useCallback(async (id: string) => {
